@@ -25,7 +25,7 @@ st.set_page_config(
     page_title="Conversaciones y Pushes · Opción Yo",
     page_icon="💬",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 # ── Detección de tema (claro/oscuro) ────────────────────────────
@@ -171,11 +171,18 @@ def kpi(label, value, delta="", kind=""):
 
 
 def sfig(fig, h=340):
-    fig.update_layout(height=h, margin=dict(t=46, b=10, l=10, r=10),
-                       font=dict(color=OY_CHART_TEXT, family="Segoe UI,sans-serif"),
-                       plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-                       title_font=dict(color=OY_CHART_TITLE, size=14),
-                       legend=dict(font=dict(color=OY_CHART_TEXT)))
+    layout_kwargs = dict(
+        height=h, margin=dict(t=46, b=10, l=10, r=10),
+        font=dict(color=OY_CHART_TEXT, family="Segoe UI,sans-serif"),
+        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+        legend=dict(font=dict(color=OY_CHART_TEXT)),
+    )
+    # Solo tocamos el título si el gráfico realmente tiene uno — si no, Plotly
+    # renderiza literalmente el texto "undefined" al setear title_font sin title.text.
+    titulo_actual = fig.layout.title.text if fig.layout.title else None
+    if titulo_actual:
+        layout_kwargs["title"] = dict(text=titulo_actual, font=dict(color=OY_CHART_TITLE, size=14))
+    fig.update_layout(**layout_kwargs)
     fig.update_xaxes(color=OY_CHART_TEXT, gridcolor="rgba(128,128,128,.25)")
     fig.update_yaxes(color=OY_CHART_TEXT, gridcolor="rgba(128,128,128,.25)")
     return fig
@@ -355,57 +362,47 @@ sr = load_sessions()
 cat = load_catalog()
 
 # ══════════════════════════════════════════════════════════════
-#  SIDEBAR · SOLO MODELO DE COSTO (los filtros viven en cada pestaña)
+#  CONFIGURACIÓN DEL MODELO DE COSTO (panel plegable, sin sidebar)
 # ══════════════════════════════════════════════════════════════
-st.sidebar.markdown("### 💰 Modelo de costo")
-st.sidebar.caption(
-    "Treble/WhatsApp cobra por **conversación** de 24h, en tramos según volumen mensual — "
-    "no es una tarifa plana. Esta tabla es la real de tu cuenta (extraída y auditada del "
-    "reporte nativo 'Inversión' de Treble)."
-)
-st.sidebar.markdown(
-    "**Tramos reales (por mes):**\n"
-    "- 0 – 5,000 conv. → $0.20\n"
-    "- 5,001 – 10,000 conv. → $0.18\n"
-    "- 10,001 – 20,000 conv. → $0.15\n"
-    "- > 20,000 conv. → $0.12"
-)
-modo_costo = st.sidebar.radio(
-    "Fuente de la tarifa",
-    ["Tramos reales de Treble (recomendado)", "Tarifa fija manual"],
-    index=0,
-    help="Los tramos reales se aplican automáticamente según el volumen mensual de cada mes en "
-         "los datos. Usa 'Tarifa fija manual' solo si quieres simular un escenario distinto."
-)
-if modo_costo == "Tarifa fija manual":
-    tarifa_manual = st.sidebar.number_input(
-        "Tarifa manual por conversación (USD)", min_value=0.0, value=0.12, step=0.01, format="%.3f"
-    )
-else:
-    tarifa_manual = None
-
-modelo_costo = st.sidebar.radio(
-    "¿Qué cuenta como conversación facturable?",
-    ["Cada push entregado (conversación abierta)", "Solo cuando el cliente responde"],
-    index=0,
-    help="WhatsApp Business Platform factura por conversación de 24h iniciada por el negocio al "
-         "entregar la plantilla, independientemente de si el cliente responde. Cambia esto solo si "
-         "confirmas con Treble que tu contrato factura distinto."
-)
-
-st.sidebar.markdown("---")
-st.sidebar.caption(
-    f"📅 Reporte de pushes: {gr['fecha'].min()} → {gr['fecha'].max()}\n\n"
-    f"💬 Sesiones conversacionales: {sr['fecha'].min()} → {sr['fecha'].max()}\n\n"
-    "Cada pestaña tiene su propio filtro de fechas y búsqueda arriba del contenido."
-)
-st.sidebar.caption(
-    "**Fuentes:** reporte general Treble/WhatsApp (envíos automáticos), reporte de sesiones "
-    "conversacionales, catálogo interno de plantillas (auditado y completado) y export nativo "
-    "de Treble 'Inversión' (tarifas reales, auditadas).\n\n"
-    "**Fuera de alcance (a propósito):** tickets de incidencias técnicas / HubSpot — "
-    "eso vive en el dashboard **Incidencias Técnicas**, aparte."
-)
+with st.expander("⚙️ Configuración del modelo de costo (tarifa real de Treble, auditada)", expanded=False):
+    cc1, cc2 = st.columns(2)
+    with cc1:
+        st.caption(
+            "Treble/WhatsApp cobra por **conversación** de 24h, en tramos según volumen mensual. "
+            "Tramos reales de tu cuenta (auditados contra el export nativo 'Inversión' de Treble):\n\n"
+            "- 0 – 5,000 conv. → $0.20\n"
+            "- 5,001 – 10,000 conv. → $0.18\n"
+            "- 10,001 – 20,000 conv. → $0.15\n"
+            "- > 20,000 conv. → $0.12"
+        )
+        modo_costo = st.radio(
+            "Fuente de la tarifa",
+            ["Tramos reales de Treble (recomendado)", "Tarifa fija manual"],
+            index=0,
+            help="Los tramos reales se aplican automáticamente según el volumen mensual de cada mes."
+        )
+        if modo_costo == "Tarifa fija manual":
+            tarifa_manual = st.number_input(
+                "Tarifa manual por conversación (USD)", min_value=0.0, value=0.12, step=0.01, format="%.3f"
+            )
+        else:
+            tarifa_manual = None
+    with cc2:
+        modelo_costo = st.radio(
+            "¿Qué cuenta como conversación facturable?",
+            ["Cada push entregado (conversación abierta)", "Solo cuando el cliente responde"],
+            index=0,
+            help="WhatsApp Business Platform factura por conversación de 24h iniciada por el negocio "
+                 "al entregar la plantilla, independientemente de si el cliente responde."
+        )
+        st.caption(
+            f"📅 Reporte de pushes: {gr['fecha'].min()} → {gr['fecha'].max()}\n\n"
+            f"💬 Sesiones conversacionales: {sr['fecha'].min()} → {sr['fecha'].max()}\n\n"
+            "**Fuentes:** reporte general Treble/WhatsApp, reporte de sesiones conversacionales, "
+            "catálogo interno de plantillas (auditado y completado) y export nativo de Treble "
+            "'Inversión' (tarifas reales).\n\n"
+            "**Fuera de alcance (a propósito):** incidencias técnicas / HubSpot — dashboard aparte."
+        )
 
 
 # ══════════════════════════════════════════════════════════════
@@ -555,6 +552,61 @@ with tab1:
         f'"📤 Pushes Automáticos & Costo".</div>',
         unsafe_allow_html=True
     )
+
+    # ── Comparador de períodos (mes vs. mes, o semana vs. semana) ──
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown('<span class="sec purple">📆 Comparar períodos</span>', unsafe_allow_html=True)
+
+    gr_comp = con_costo(gr)  # siempre sobre el histórico completo, independiente del filtro de arriba
+    gr_comp["semana"] = pd.to_datetime(gr_comp["fecha"]).dt.to_period("W").apply(lambda p: p.start_time.date())
+    sr_comp = sr.copy()
+    sr_comp["semana"] = pd.to_datetime(sr_comp["fecha"]).dt.to_period("W").apply(lambda p: p.start_time.date())
+    sr_comp["mes"] = pd.to_datetime(sr_comp["fecha"]).dt.to_period("M").apply(lambda p: p.start_time.date())
+
+    granularidad = st.radio("Comparar por", ["Mes", "Semana"], horizontal=True, key="t1_gran")
+    col_period = "mes" if granularidad == "Mes" else "semana"
+
+    opciones_periodo = sorted(gr_comp[col_period].unique(), reverse=True)
+    if len(opciones_periodo) < 2:
+        st.info(f"No hay suficientes {granularidad.lower()}s distintos en los datos para comparar.")
+    else:
+        cp1, cp2 = st.columns(2)
+        periodo_a = cp1.selectbox(f"{granularidad} A (más reciente)", opciones_periodo, index=0, key="t1_pa")
+        periodo_b = cp2.selectbox(f"{granularidad} B (a comparar)", opciones_periodo, index=1, key="t1_pb")
+
+        def _resumen_periodo(p):
+            g = gr_comp[gr_comp[col_period] == p]
+            s = sr_comp[sr_comp[col_period] == p]
+            env = int(g["successful"].sum())
+            ent = int(g["delivered"].sum())
+            return {
+                "Enviados": env,
+                "Tasa de entrega %": safe_pct(ent, env),
+                "Tasa de respuesta %": safe_pct((g["successful"] * g["response_rate"]).sum(), env),
+                "Costo estimado (USD)": g["costo_estimado"].sum(),
+                "Sesiones/conversaciones": len(s),
+                "% Escalado a humano": safe_pct((s["session_status"] == "HumanHandover").sum(), len(s)) if len(s) else 0.0,
+            }
+
+        res_a = _resumen_periodo(periodo_a)
+        res_b = _resumen_periodo(periodo_b)
+
+        filas_cmp = []
+        for metrica in res_a:
+            va, vb = res_a[metrica], res_b[metrica]
+            delta_pct = safe_pct(va - vb, vb) if vb else None
+            filas_cmp.append({
+                "Métrica": metrica,
+                f"{periodo_a}": round(va, 2),
+                f"{periodo_b}": round(vb, 2),
+                "Variación": f"{'+' if (delta_pct or 0) >= 0 else ''}{delta_pct}%" if delta_pct is not None else "—",
+            })
+        cmp_df = pd.DataFrame(filas_cmp)
+        st.dataframe(cmp_df, use_container_width=True, hide_index=True)
+        st.caption(
+            f"Comparando {granularidad.lower()} del {periodo_a} contra el {periodo_b}. "
+            "Cambia la granularidad o los períodos arriba para comparar cualquier combinación."
+        )
 
 
 # ────────────────────────────────────────────────────────────────
