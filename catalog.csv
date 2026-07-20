@@ -1,0 +1,310 @@
+conversacion,plantilla,mensaje,botones,tipo,proposito,estado,equipo
+1ss No asistió a primera sesión,freepass_cl_no_asistio_primera_sesion,"Hola {{hubspot_firstname}}, nos percatamos de que no lograste asistir a tu primera sesión. Tu especialista nos avisó que te esperó y nos apena que no hayas logrado asistir. Estamos acá para apoyarte.",Sin botones,Utilidad,Cuando el cliente no asiste a primera sesión,Push Activo,Consultores
+APP: Cómo habilitar notificaciones,,,,,push masivo para habilitar notificaciones por la app,Inactivo,
+AUT - Recordatorio 30 minutos antes,,,,,,Inactivo,
+Actividad: Push Mis Clientes,,,,,,Inactivo,
+Adelantar consultoria,adelantar_consultoria,"Hola {{hubspot_firstname}}, te contactamos desde Opción Yo porque notamos que el tiempo de espera de tu tour de bienvenida es muy alto y queremos ofrecerte para agilizar tu inicio y adelantar esta sesión.",Sin botones,Utilidad,,Manual activo,Consultores
+Agendamiento exitoso,ag_existoso_15_min_despues_de_agendar,"Tu sesión ha sido programada con éxito. Mientras tanto, puedes ingresar a la plataforma y visitar tu perfil para ver un breve tutorial que te ayudará a familiarizarte con todas las funcionalidades que tenemos.
+
+
+
+
+
+
+
+
+
+
+",adelantar                             no gracias ,Utilidad,Cuando agenda exitosamente viejo onboarding,Push Activo,ATC
+Aviso Navidad y año nuevo,,,,,,Inactivo,
+Baseline test,,,,,,Inactivo,
+CON LINK: Recordatorio consultoria 30 min antes,,,,,,Inactivo,
+CONLINK: Recordatorio consultoria 30 min antes,,,,,,Inactivo,
+Caída de internet especialista cancela,,,,Utilidad,,Manual activo,ATC
+Cancelación Client Success,,,,,,Inactivo,
+Cancelar plan,push_cancelar_plan_hsm_1,"Hola {{hubspot_firstname}}, Lamentamos mucho que quieras abandonar tu proceso de bienestar.  El proceso de cancelación solo se realiza a través de nuestra plataforma, pero antes nos encantaría entender en qué podemos seguir mejorando. ¿Podrías compartir conmigo el motivo que te lleva a tomar esta decisión?",,Utilidad,,Manual activo,Cancelaciones
+Carlos insistencias,saludo_carlos_inasistencias,"Hola, ¿Cómo estás? Te saluda Carlos Jimenez de Opción Yo, tu plan de bienestar 🌱 Notamos que tienes algunas sesiones agendadas a las que no has podido asistir. Quisiera saber si todo está bien o si ocurrió algo que te haya impedido conectarte. Si necesitas apoyo o hacer algún ajuste para continuar con tu proceso de bienestar, con gusto estamos aquí para ayudarte.
+
+
+
+
+
+
+
+
+
+
+
+",,Utilidad,,Manual activo,Mantenimiento
+Cliente cancela menos de 24hs antes,cl_cancela_con_mas_de_24hs_de_anticipacion_v1,"Hola, {{hubspot_firstname}}. 🌱 Recibimos tu solicitud de cancelar la sesión y tu especialista ya fue notificado. 🗓️ Para revisar si es posible reagendar este espacio, responde a este mensaje y te ayudaremos con la gestión. 👋🏼",,Utilidad,,Manual activo,ATC
+Cliente con 2 Cancelaciones tardias GI,cliente_con_2_cancelacin_tardias_gi,"¡Hola! 👋 Espero que te encuentres muy bien. Soy Giselle Villegas, ejecutiva de cuenta de Opción Yo, tu plan de bienestar. ✨ Te contacto porque hemos registrado dos cancelaciones tardías en tus sesiones durante los últimos días. Queremos saber si todo está bien y si hay alguna situación que esté dificultando tu asistencia o continuidad en el proceso. 💬 Mi intención es acompañarte y encontrar alternativas que te permitan aprovechar tu plan al máximo. 😊 Agradeceré mucho tu respuesta. ¡Quedo atenta a tus comentarios! 🙋‍♀️",,Utilidad,,Manual activo,Mantenimiento
+Cliente con Cancelacion Tardia GI,cliente_con_cancelacion_tardia_gi,"¡Hola! 👋 Espero que te encuentres muy bien. Soy Giselle Villegas, ejecutiva de cuenta de Opción Yo, tu plan de bienestar. ✨ Te escribo porque hemos notado algunas cancelaciones tardías o inasistencias a tus sesiones recientes. Nos gustaría saber si todo está bien y si hay alguna situación que esté dificultando tu asistencia. 💬 Estoy aquí para acompañarte y buscar juntos una solución que se adapte mejor a tus necesidades. 😊 Quedo muy atenta a tus comentarios. ¡Saludos! 🙋‍♀️",,Utilidad,,Manual activo,Mantenimiento
+Cliente no asistió,,,,,,Inactivo,
+Confirmación de match,confirm_match,"
+
+Hola, {{hubspot_firstname}}. El primer paso para asegurar que tu experiencia sea de calidad, es hacer click con tu especialista. ✅
+
+Si no estás conforme recuerda que te podemos poner en contacto con tu Consultor/a, para darte garantía y apoyarte a encontrar otro especialista para que logres tus objetivos. ✨","Me gustó
+Cambiar",Utilidad,cuando no confirma el match desde la plataforma entonces se le manda por whatsapp,Push Activo,Consultores
+Consultor esperando,aviso_en_linea,"Hola {{hubspot_firstname}}, de acuerdo a tu solicitud, tu consultor está en línea aguardándote para tu Tour de Bienvenida.",,Utilidad,,Manual activo,Consultores
+Copia de la conversación Consultor esperando,,,,,,Inactivo,
+Copia de la conversación Inbound-especialistas,,,,,,Inactivo,
+Cuarta sesión si asistió,seguimiento_4ss_asistio,"
+
+Hola {{hubspot_firstname}}
+
+Terminaste tus primeras 4 sesiones 🎉
+
+Ahora empiezas una etapa más profunda de tu proceso. Si algo no ha sido como esperabas o necesitas claridad para el siguiente paso, estoy aquí para ayudarte.","Quiero que me escribas
+Todo estuvo bien",Marketing,cuando termina exitosamente la 4ta sesion,Push Activo,Consultores
+Cómo cancelar y reagendar,como_reagendar_con_mas_de_24hs_de_anticipacion_v1,"Hola, {{hubspot_firstname}} 👋🏼 Hemos recibido tu solicitud de re-agendar tu sesión, ¿lograste realizar el cambio desde tu plataforma, o requieres de asistencia? Estamos pendientes para ayudarte. 🌱",,Utilidad,,Manual activo,ATC
+ENGLISH: Saludo soporte,english_saludo_soporte,"Hello {{hubspot_firstname}}, we are getting in touch because we need to talk to you. Do you have a few minutes?",,Utilidad,,Manual activo,ATC
+Emergencia Especialista Cancela,emergencia_especialista_cancelacion,"Hola {{hubspot_firstname}}, lamento informarte que tu especialista {{hubspot_especialista_actual}} ha tenido una emergencia y no podrá asistir a la sesión del {{hubspot_fecha_sesion}}. 🗓️ Por favor responde con un SI para ayudarte con el reagendamiento lo antes posible.  Gracias por tu comprensión.",,Utilidad,,Manual activo,ATC
+Encuesta User Persona,,,,,,Inactivo,
+Enfermedad especialista cancela,enfermedad_especialista_cancela,"Hola {{hubspot_firstname}}, lamento informarte que tu especialista {{hubspot_especialista_actual}} presenta un tema de salud que le impedirá presentarse en la sesión del {{hubspot_fecha_sesion}}. Por favor, para ayudarte con el reagendamiento lo antes posible, responde con un SI. ➡️📆 Muchas Gracias por tu comprensión.",,Utilidad,,Manual activo,ATC
+Envío habilitar notificaciones,,,,,,Inactivo,
+Especialista cancela motivo Personal,especialista_cancela_motivo_personal,"Hola {{hubspot_firstname}}, tu especialista {{hubspot_especialista_actual}} tiene un compromiso personal impostergable y no podrá asistir a la sesión del {{hubspot_fecha_sesion}}. Por favor responde con un SI para ayudarte con el reagendamiento lo antes posible. Gracias por tu comprensión.",,Utilidad,,Manual activo,ATC
+Especialista esperando,esp_espera,"Hola {{hubspot_firstname}}, tu especialista te espera por la plataforma. ¿Tienes alguna dificultad que te impide ingresar?",,Utilidad,,Manual activo,ATC
+Flujo cancelación de sesiones,,,,Marketing,,Inactivo,
+Flujo referido,,,,,,Inactivo,
+Horario SDD,,,,,,Inactivo,
+Horario Soporte,,,,,,Inactivo,
+IA - Inbound Testing,,,,,,Inactivo,
+ICP 24 horas antes,,,,,,Inactivo,
+"Inasistencia 2, 3 o 4ta sesión con AR",inasis_sin_etapa_10_ver_2,"Hola {{hubspot_firstname}}, notamos que no lograste asistir a tu sesión. Tu especialista te esperó y nos apena que no hayas podido conectarte. Te recordamos que tu próxima sesión está agendada para el {{hubspot_proxima_sesion}}. Si alguna situación te está impidiendo asistir, por favor comunícate con nosotros para ayudarte a reagendar con tiempo y continuar tu proceso 🫶",,Utilidad,cuando el cliente de primer mesno asiste y tiene AR,Push Activo,Consultores
+"Inasistencia 2, 3, o 4ta sesión",inasistencia_sin_sesion_futura_version_2,"
+
+Hola {{hubspot_firstname}}, notamos que no pudiste asistir a tu sesión.
+
+Si hay algo que esté dificultando tu asistencia, estamos aquí para ayudarte.",Sin botones,Utilidad,cuando el cliente de primer mesno asiste y no tiene AR,Push Activo,Consultores
+Inasistencia Primera sesión,seguimiento_1ss_no_asistio,"
+
+Hola {{hubspot_firstname}},
+
+Vimos que no pudiste asistir a tu primera sesión y nos apena mucho. Sabemos que a veces surgen imprevistos y tu especialista nos pidió contactarte para ayudarte a reagendar.
+
+Lo importante es que tu proceso pueda comenzar pronto. Aunque normalmente las sesiones no canceladas con al menos 24h se consideran tomadas, al ser la primera queremos que puedas recuperarla.
+
+Quedamos pendientes de ti para reagendarla. 💛","Reagendar mi sesión
+Quiero que me contacten",Utilidad,Cuando no asiste a la primera sesión,Push Activo,Consultores
+Inasistencia con AR,inasis_sin_etapa_10_ver_2,"Hola {{hubspot_firstname}}, notamos que no lograste asistir a tu sesión. Tu especialista te esperó y nos apena que no hayas podido conectarte. Te recordamos que tu próxima sesión está agendada para el {{hubspot_proxima_sesion}}. Si alguna situación te está impidiendo asistir, por favor comunícate con nosotros para ayudarte a reagendar con tiempo y continuar tu proceso 🫶",,Utilidad,cuando el cliente de otros meses no asiste y tiene AR,Push Activo,ATC
+Inasistencia sin AR,inasis_sin_etapa_10_ver_2,"Hola {{hubspot_firstname}}, notamos que no lograste asistir a tu sesión. Tu especialista te esperó y nos apena que no hayas podido conectarte. Te recordamos que tu próxima sesión está agendada para el {{hubspot_proxima_sesion}}. Si alguna situación te está impidiendo asistir, por favor comunícate con nosotros para ayudarte a reagendar con tiempo y continuar tu proceso 🫶",,Utilidad,cuando el cliente de otros meses no asiste y no tiene AR,Push Activo,ATC
+Inasistencia sin sesiones futuras,inasistencia_sin_sesion_futura_version_2,"
+
+Hola {{hubspot_firstname}}, notamos que no pudiste asistir a tu sesión.
+
+Si hay algo que esté dificultando tu asistencia, estamos aquí para ayudarte.",Sin botones,Utilidad,Cuando el cliente no asiste y no tiene otras sesiones agendadas,Push Activo,ATC
+Inasistencias Lau O,lau_o_inasistencias_v1,"Hola, ¿Cómo estás? Te saluda Laura Ospina de Opción Yo, tu plan de bienestar 🌱 Notamos que tienes algunas sesiones agendadas a las que no has podido asistir. Quisiera saber si todo está bien o si ocurrió algo que te haya impedido conectarte. Si necesitas apoyo o hacer algún ajuste para continuar con tu proceso de bienestar, con gusto estamos aquí para ayudarte.",,Utilidad,,Manual activo,Mantenimiento
+Inbound - Especialistas,,,,Utilidad,,Inbound,
+Inbound cliente nuevo,,,,Utilidad,,Inbound,
+Informe pago fallido 48hs,informe_pago_fallido,"
+
+Hola, {{hubspot_firstname}}💛 Te escribimos porque no pudimos procesar el pago de tu plan en Opción Yo. 
+
+Si necesitas ayuda para revisar tu método de pago, respóndenos este mensaje. 
+
+Estamos aquí para ayudarte ✨",Sin botones,Utilidad,48 horas después de que el pago haya fallido,Push Activo,ATC
+Llamada desde HUBSPOT,push_llamada_hubspot,"Hola {{hubspot_firstname}}, espero te encuentres bien. Soy tu consultor en Opción Yo y estaré contactándote por llamada en los próximos minutos desde este mismo número +1 305-767-9862 para poder apoyarte en tu proceso de bienestar. Espero me puedas contestar.",,Utilidad,,Manual activo,Consultores
+Llamada desde WHATSAPP,,,,,,Inactivo,
+Mante - Saludo Carlos,mante_saludo_general,"Hola {{hubspot_firstname}}, sabemos que tienes una solicitud o consulta y queremos acompañarte en este proceso. Para poder continuar con la atención, por favor respóndenos este mensaje. Será un gusto ayudarte y brindarte el apoyo que necesites.",,Utilidad,,Manual activo,Mantenimiento
+Mante - Saludo Carolina,mante_saludo_general,"Hola {{hubspot_firstname}}, sabemos que tienes una solicitud o consulta y queremos acompañarte en este proceso. Para poder continuar con la atención, por favor respóndenos este mensaje. Será un gusto ayudarte y brindarte el apoyo que necesites.",,,,Manual activo,Mantenimiento
+Mante - Saludo Giselle,mante_saludo_general,"Hola {{hubspot_firstname}}, sabemos que tienes una solicitud o consulta y queremos acompañarte en este proceso. Para poder continuar con la atención, por favor respóndenos este mensaje. Será un gusto ayudarte y brindarte el apoyo que necesites.",,,,Manual activo,Mantenimiento
+Medición de progreso,,,,,,Inactivo,
+Mensaje bienvenida a Opción Yo,mensaje_bienvenida,"
+
+¡Bienvenido a Opción Yo! 💙
+
+Tu compra ha sido procesada con éxito. A partir de ahora, este será tu contacto de atención al cliente. Si en algún momento necesitas ayuda o tienes alguna dificultad, no dudes en escribirnos. Estamos aquí para apoyarte en tu camino. 🚀✨
+
+¡Que disfrutes tu experiencia! 😊",Sin botones,Utilidad,Inmediatamente con la compra,Push Activo,Consultores
+NPS Carlos,nps_carlos_saludo,Hola! Te saluda Carlos del área de Control de Calidad de Opción Yo. Notamos que tu experiencia con nosotros no llenó tus expectativas. Me gustaría pedirte 5 minutos de tu tiempo para entender qué pasó y darte una solución y al mismo tiempo recibir sugerencias para mejorar nuestro servicio.,,Utilidad,,Manual activo,Mantenimiento
+NPS Control de calidad,nps_retencion,"Hola! Te saluda Celeste del área de Control de Calidad de Opción Yo, porque notamos que tu experiencia con nosotros no llenó tus expectativas. Me gustaría pedirte 5 minutos de tu tiempo para entender qué pasó y darte una solución.",,Utilidad,,Manual activo,Mantenimiento
+NPS Lau O,consulta_control_de_calidad,"👋 *Hola,* *te* *saluda* *Laura* *Ospina* *del* *área* *de* *Control* *de* *Calidad* *de* *Opción* *Yo.* Notamos que tu experiencia con nosotros no llenó tus expectativas. Me gustaría pedirte 5 minutos de tu tiempo para entender qué sucedió, ofrecerte una solución y recibir tus sugerencias para mejorar nuestro servicio. ¿Tendrías un momento para conversar?",,Utilidad,,Manual activo,Mantenimiento
+Navidad cupon clientes promo,,,,,,Inactivo,
+Notificación Mensaje nuevo,notif_mensaje_nuevo,Te contactamos para notificarte que tu especialista te envió un mensaje en la plataforma que requiere de tu atención👀   Accede a tu perfil aquí 👇🏻   https://opcionyo.com/paciente,,,,Manual activo,ATC
+Notificación de App envío sept,,,,,,Inactivo,
+Notificación especialista sesión hoy,aviso_esp_agenda_hoy_con_datos,"
+
+Hola {{hubspot_firstname}}, Tienes una nueva sesión agendada con {{hubspot_hsm_sesion_agendada_yopsi_id_cliente}} para el día {{hubspot_hsm_sesion_agendada_yopsi_id_fecha_hora_cita}}. Por favor revisa tu agenda para estar disponible a la hora programada. ⏰",Sin botones,Utilidad,Notificacion hacia el especialista para recordar que tiene sesion agendada hoy,Push Activo,ATC
+Notificación primera sesión,,,,,,Inactivo,
+Onboarding 24hs sin agendar consultoria,onb_push_24hs_ver4,"
+
+Hola {{hubspot_firstname}}, vimos que aún no has finalizado tus datos para iniciar tu proceso. Puedes completarlos aquí.
+Si necesitas ayuda, estamos disponibles.",link: Continuar,Utilidad,"viejo onboarding, cuando ha pasado 24hs sin agendar la consultoria",Push Activo,Consultores
+Onboarding 3hs sin agendar consultoria,onb_3hs_v3,"
+
+Hola {{hubspot_firstname}}, vimos que iniciaste tu proceso en Opción Yo. Para continuar, es necesario completar tu información aquí.
+Si necesitas ayuda con este paso, podemos acompañarte.",link: Continuar,Utilidad,"viejo onboarding, cuando ha pasado 3hs sin agendar la consultoria",Push Activo,Consultores
+Onboarding 6hs sin agendar Consultoria,onb_6hs_ver4,"Hola {{hubspot_firstname}}, notamos que tu registro está en curso. Para poder avanzar con tu proceso en Opción Yo, puedes completar tu información aquí. ¿Te gustaría apoyo para hacerlo?",link: Continuar,Utilidad,"viejo onboarding, cuando ha pasado 6hs sin agendar la consultoria",Push Activo,Consultores
+Pago fallido,past_due_utilidad,"
+
+Hola {{hubspot_firstname}}, no pudimos procesar el pago de tu suscripción. Para evitar la interrupción del servicio, te recomendamos revisar o actualizar tu información de pago. Si necesitas asistencia, estamos disponibles para ayudarte.",Sin botones,Utilidad,Cuando el pago falla,Push Activo,ATC
+Pago fallido AR dia 5,payment_update,"
+
+{{hubspot_firstname}}, el intento de pago en Opción Yo no se procesó correctamente. Si deseas mantener tu reserva con el especialista, te recomendamos contactarnos dentro de las próximas 24 horas para revisar las opciones disponibles.",Sin botones,Utilidad,Cuando el pago falla y tiene AR,Push Activo,ATC
+Pago fallido SIN AR dia 5,,,,,,Inactivo,
+Past due - Andrea,push_dia_26_past_due,"Hola {{hubspot_firstname}} No hemos podido procesar tu pago en Opción Yo y nos apena que vayas perder tus beneficios. Por eso, insistimos en ayudarte a cambiar tus datos de pago antes de cerrar el mes. Si quieres asistencia estamos aquí para ti.",,,,Manual activo,ATC
+Primera sesión si asistió,1ss_saludo_consultor,"Hola {{hubspot_firstname}} 🌱 Soy {{hubspot_hsm_nombre_consultor}}, Te escribo para asegurar que estás conforme con tu primera sesión. ¿Te sentiste escuchado/a? ¿Hubo claridad? ¿Sentiste conexión?  Si algo no te convenció, escríbeme y lo revisamos juntos.",quiero que me escribas       todo estuvo bien                                    ,Utilidad,Cuando completa exitosamente la primera sesión,Push Activo,Consultores
+Problemas técnicos,utilidad_problemas_tecnicos,"Hola {{hubspot_firstname}}, te contactamos de acuerdo a tu solicitud de ayuda por los problemas técnicos recientes que tuviste. Queremos ayudarte para evitar esto en tu próxima sesión.",Sin botones,Utilidad,Cuando tiene problemas tecnicos y ticket creado,Push Activo,ATC
+Problemas técnicos: especialista cancela,cancelacion_por_problemas_tecnicos_especialistas,Hola {{hubspot_firstname}} Tu especialista nos avisó que se encuentra con problemas técnicos y no puede ingresar a la sesión. Nos solicitó que te apoyemos a reagendar y recuperar la sesión. Mil disculpas y muchas gracias por tu comprensión,,,,Manual activo,ATC
+Propuesta flujo cancelación por mensajería,,,,,,Inactivo,
+Puntuación 1,problemas_tecnicos_dic_2025,Hola {{hubspot_firstname}} 💚 Vimos que tu última sesión presentó inconvenientes técnicos. Lamentamos la experiencia y queremos ayudarte a resolverlo cuanto antes.   ¿Podemos contactarte para revisar lo ocurrido y apoyarte?,Mensaje por Whatsapp Prueba tecnica               No deseo asistencia ,Utilidad,Cuando puntua 1,Push Activo,ATC
+Puntuación 2,problemas_tecnicos_dic_2025,Hola {{hubspot_firstname}} 💚 Vimos que tu última sesión presentó inconvenientes técnicos. Lamentamos la experiencia y queremos ayudarte a resolverlo cuanto antes.   ¿Podemos contactarte para revisar lo ocurrido y apoyarte?,Mensaje por Whatsapp Prueba tecnica               No deseo asistencia ,Utilidad,Cuando puntua 2,Push Activo,ATC
+Puntuación 3,hsm_problemas_tecnicos,Hola {{hubspot_firstname}}🌿 Notamos que calificaste tu última sesión con un 3. Queremos asegurarnos de que tus próximas videollamadas funcionen sin inconvenientes.  ¿Te gustaría que te ayudemos con soporte técnico?,Mensaje por Whatsapp Prueba tecnica               No deseo asistencia ,Utilidad,Cuando puntua 3,Push Activo,ATC
+Push Marketing descargar APP,,,,,,Inactivo,
+Push Recomenzar-onboarding Whatsapp,recomenzar_utilidad_1,"Hola {{hubspot_firstname}}, notamos que tu intento de agendar tu Tour de Bienvenida con tu Consultor de Bienestar no se completó. ¿Podemos ayudarte?",Sin botones ,Utilidad,Cuando no agenda viejo onboarding,Push Activo,Consultores
+Push Retorno incompleto,,,,,,Inactivo,
+Push completar ICP,,,,,,Inactivo,
+Push etapa 5,,,,,,Inactivo,
+Push fin de postergación,,,,,,Inactivo,
+Push postergar y agendar,push_agendar_pausa,"¡Hola {{hubspot_firstname}}! 🌟  Recibimos tu postergación de pago y notamos que tienes sesiones sin agendar. Queremos ayudarte para que no expiren durante tu ausencia.  Para que esto no ocurra, sigue estos pasos:   Puedes agendarlas tu mismo ➡️ (opcionyo.com/paciente) Puedes solicitar apoyo ➡️ un agente te asistirá en este chat.  Equipo de Opción Yo.",Solicitar ayuda,Utilidad,Cuando posterga y deja sesiones sin agendar,Push Activo,ATC
+Push renovación etapa 9,renovacion_sin_sesiones_agendadas,"Hola {{hubspot_firstname}}, se registró la renovación de tu plan hace 72 horas. Se encuentran disponibles nuevas sesiones en tu cuenta para agendar. Para más información puedes contactarnos.",Sin botones,Utilidad,Cuando se renueva y no agenda sus sesiones,Push Activo,ATC
+Push retest vencido 1,,,,,,Inactivo,
+Push retest vencido 2,,,,,,Inactivo,
+Push retest vencido 3,,,,,,Inactivo,
+Push sesión en 72hs,sesion_en_72hrs,"Hola {{hubspot_firstname}}, Notamos que no lograste asistir a tu última sesión. Queremos recordarte que tienes una próxima sesión agendada en 72 horas. Si necesitas modificarla o tienes algún inconveniente, contáctanos con anticipación para ayudarte a reagendar sin que pierdas tu espacio 🌿. La constancia es clave para que tu proceso sea exitoso. Estamos aquí para acompañarte ✨",,,Cuando el cliente no asistió a su ultima sesión y tiene otra en 72hs ,Push Activo,ATC
+Push video onboarding,,,,,,Inactivo,
+Quejas Control de Calidad,queja_retencion,"Hola! Te saluda Celeste, encargada de Control de Calidad de Opción Yo. Quería confirmarte que recibí tu caso y estoy verificando en el sistema para darte una solución. Tendrías unos minutos para conversar brevemente, así entiendo mejor cómo ayudarte?",,,,Manual activo,Mantenimiento
+Queremos que vuelvas,,,,,,Inactivo,
+Recomenzar mensaje a los 12 horas,etapa_5_push_nuevo_12_hs,"Hola {{hubspot_firstname}}, aún tienes pendiente agendar tu Tour de Bienvenida. ¿Podemos agendarlo ahora?",Sin botones,Utilidad,Cuando compró hace 12 horas y no hizo viejo onboarding,Push Activo,Consultores
+Recordatorio 1h antes,q3_recordatorio_1_hr_antes,Hola {{hubspot_firstname}} 👋🏼 Te recordamos que tu sesión agendada en Opción Yo empieza en 1 hora. Busca un rinconcito privado y sin distracciones 🧘🏼‍♀✨ ¡Te esperamos! 💛,Sin botones,Utilidad,Cuando tiene sesión en 1 hora,Push Activo,ATC
+Recordatorio 30 minutos antes,sesion_30_min,¡Hola {{hubspot_firstname}}! 👋   Tu sesión comenzará en 30 minutos.   Haz click en el botón azul ➡️ en nuestra plataforma para habilitar la sesión. Accede a tu perfil aquí 👇🏻   https://opcionyo.com/paciente ¿Listo para empezar?,Confirmar Asistencia     Llegare tarde                  No voy a llegar ,Marketing,Cuando tiene sesión en 30 minutos ,Push Activo,ATC
+Recordatorio 3hs antes,,,,,,Inactivo,
+Recordatorio SDD,,,,,,Inactivo,
+Recordatorio Sesión en 28hs,push_26_hs_mas_directo,"Hola {{hubspot_firstname}}, Tu sesión es mañana a las {{hubspot_sesion_en_28hs}}, Como no hemos recibido cambios, tu sesión sigue confirmada. Si no podrás asistir, puedes reagendarla dentro de las próximas 2h. Las sesiones no canceladas con 24h de anticipación se consideran tomadas. Gracias por tu compromiso ✨",Confirmar                 Reagendar,Utilidad,Cuando tiene sesion en 28hs para que confirme su asistencia. Si no responde manda otro mensaje 26hs antes de su sesión para que confirme,Push Activo,ATC
+Recordatorio consultoria 30 min antes,notif_record_tour_con_foto_no_whatsapp,"Hola {{hubspot_firstname}} 👋🏻, te recordamos que tu Tour de Bienvenida agendado en Opción Yo comenzará en 30 minutos.   Recuerda que para acceder al Tour debes ingresar a la plataforma. Si necesitas ayuda, estamos aquí para ti.",Sin botones,Utilidad,30 minutos antes de su consultoria,Push Activo,Consultores
+Recordatorios 1 de marzo,,,,,,Inactivo,
+Retomar onboarding,,,,,,Inactivo,
+SDD sin agendar,recomenzar_sdd_sin_emojis_utilidad,"Hola {{hubspot_firstname}}, detectamos que tu intento de agendar la Sesión de Descubrimiento quedó incompleto. Si necesitas ayuda para finalizar el proceso estamos aquí para apoyarte. ✅",,,,Manual activo,ATC
+START IA,,,,,,Inactivo,
+Saludo - Gestor de Consultoria,responder_comunicacion,"Hola {{hubspot_firstname}}, nos comunicamos contigo en respuesta a tu solicitud. ¿Tienes un momento para revisarlo ahora?",,,,Manual activo,Consultores
+Saludo Cancelación Alonso,fid_contacto_ver_3,"Hola 😊 Gracias por escribirnos. Mi intención es apoyarte con la solicitud que realizaste para que el proceso sea claro y sencillo. Antes de avanzar, me gustaría saber qué situación te llevó a considerar la cancelación. Tu experiencia es importante para nosotros y queremos asegurarnos de que recibas el acompañamiento adecuado. ¿Podrías contarme un poco más?
+
+
+
+
+
+
+
+
+
+
+
+",,,,Manual activo,Cancelaciones
+Saludo Cancelación Carlos,fid_contacto_ver_3,"Hola 😊 Gracias por escribirnos. Mi intención es apoyarte con la solicitud que realizaste para que el proceso sea claro y sencillo. Antes de avanzar, me gustaría saber qué situación te llevó a considerar la cancelación. Tu experiencia es importante para nosotros y queremos asegurarnos de que recibas el acompañamiento adecuado. ¿Podrías contarme un poco más?
+
+
+
+
+
+
+
+
+
+
+
+",,,,Manual activo,Cancelaciones
+Saludo Cancelación Lau O,fid_contacto_ver_3,"Hola 😊 Gracias por escribirnos. Mi intención es apoyarte con la solicitud que realizaste para que el proceso sea claro y sencillo. Antes de avanzar, me gustaría saber qué situación te llevó a considerar la cancelación. Tu experiencia es importante para nosotros y queremos asegurarnos de que recibas el acompañamiento adecuado. ¿Podrías contarme un poco más?
+
+
+
+
+
+
+
+
+
+
+
+",,,,Manual activo,Mantenimiento
+Saludo Cancelación Laura P,fid_contacto_ver_3,"Hola 😊 Gracias por escribirnos. Mi intención es apoyarte con la solicitud que realizaste para que el proceso sea claro y sencillo. Antes de avanzar, me gustaría saber qué situación te llevó a considerar la cancelación. Tu experiencia es importante para nosotros y queremos asegurarnos de que recibas el acompañamiento adecuado. ¿Podrías contarme un poco más?
+
+
+
+
+
+
+
+
+
+
+
+",,,,Manual activo,Cancelaciones
+Saludo Carol INASISTENCIAS,saludo_carolina_inasistencias,"Hola, ¿Cómo estás? Te saluda *Carolina* *Neira,* de Opción Yo, tu plan de bienestar 🌱 Notamos que tienes algunas sesiones agendadas a las que no has podido asistir. Quisiera saber si todo está bien o si ocurrió algo que te haya impedido conectarte. Si necesitas apoyo o hacer algún ajuste para continuar con tu proceso de bienestar, con gusto estamos aquí para ayudarte.",,,,Manual activo,Mantenimiento
+Saludo Carol NPS,saludo_carol_nps,Hola! Te saluda Carolina del área de Control de Calidad de Opción Yo💚. Notamos que tu experiencia con nosotros no llenó tus expectativas. Me gustaría pedirte 5 minutos de tu tiempo para entender qué pasó y darte una solución y al mismo tiempo recibir sugerencias para mejorar nuestro servicio.,,,,Manual activo,Mantenimiento
+Saludo Claudia,saludo_diana_rete,"Hola 😊 Gracias por escribirnos. Mi intención es apoyarte con la solicitud que realizaste para que el proceso sea claro y sencillo. Antes de avanzar, me gustaría saber qué situación te llevó a considerar la cancelación. Tu experiencia es importante para nosotros y queremos asegurarnos de que recibas el acompañamiento adecuado. ¿Podrías contarme un poco más?",,,,Manual activo,Cancelaciones
+Saludo Client Success,saludo_soporte,"Hola {{hubspot_firstname}}, nos ponemos en contacto porque necesitamos conversar contigo. ¿Tienes un momento?",,,,Manual activo,Mantenimiento
+Saludo Dep de Calidad,saludo_retencion,"Hola {{hubspot_firstname}}, te saludamos desde el Departamento de Calidad de Opción Yo, para revisar tu solicitud. ¿Tienes un momento para conversar?",,,,Manual activo,Mantenimiento
+Saludo Diana Rete,saludo_diana_rete,"Hola 😊 Gracias por escribirnos. Mi intención es apoyarte con la solicitud que realizaste para que el proceso sea claro y sencillo. Antes de avanzar, me gustaría saber qué situación te llevó a considerar la cancelación. Tu experiencia es importante para nosotros y queremos asegurarnos de que recibas el acompañamiento adecuado. ¿Podrías contarme un poco más?",,,,Manual activo,Cancelaciones
+Saludo Especialista deja OY,cambio_de_especialista_consultores_v2,"Hola, {{hubspot_firstname}} 👋🏼 Soy {{hubspot_admin_consultor}} de Opción Yo. Para dar continuidad a tu proceso, necesitamos coordinar una breve llamada contigo sobre una actualización relacionada con tu especialista. ¿Qué horario te resulta conveniente para comunicarme contigo?",,,,Manual activo,Consultores
+Saludo Gestoras Consultoria,saludo_consultoria_v4,"Hola, {{hubspot_firstname}}. 🌱 Tenemos una consulta pendiente relacionada con tu cuenta en Opción Yo. Por favor respóndenos por este medio para poder continuar con la gestión solicitada. 👋🏼",,,,Manual activo,Consultores
+Saludo Giselle INASISTENCIAS,saludo_giselle_inasistencias,"Hola, ¿Cómo estás? Te saluda *Giselle* *Villegas* de Opción Yo, tu plan de bienestar 🌱 Notamos que tienes algunas sesiones agendadas a las que no has podido asistir. Quisiera saber si todo está bien o si ocurrió algo que te haya impedido conectarte. Si necesitas apoyo o hacer algún ajuste para continuar con tu proceso de bienestar, con gusto estamos aquí para ayudarte.",,,,Manual activo,Mantenimiento
+Saludo Giselle NPS,saludo_giselle_nps,Hola! Te saluda Giselle del área de Control de Calidad de Opción Yo💚. Notamos que tu experiencia con nosotros no llenó tus expectativas. Me gustaría pedirte 5 minutos de tu tiempo para entender qué pasó y darte una solución y al mismo tiempo recibir sugerencias para mejorar nuestro servicio.,,,,Manual activo,Mantenimiento
+Saludo Glina,,,,,,Inactivo,
+Saludo Lau O,mante_saludo_general,"Hola {{hubspot_firstname}}, sabemos que tienes una solicitud o consulta y queremos acompañarte en este proceso. Para poder continuar con la atención, por favor respóndenos este mensaje. Será un gusto ayudarte y brindarte el apoyo que necesites.",,,,Manual activo,Mantenimiento
+Seguimiento Alonso,utilidad_solicitud_generica_fid,"Hola {{hubspot_firstname}}, Este mensaje corresponde a una solicitud que realizaste previamente en Opción Yo.  Para continuar con su gestión, selecciona una opción.",,,,Manual activo,Cancelaciones
+Seguimiento Carlos,utilidad_solicitud_generica_fid,"Hola {{hubspot_firstname}}, Este mensaje corresponde a una solicitud que realizaste previamente en Opción Yo.  Para continuar con su gestión, selecciona una opción.",,,,Manual activo,Mantenimiento
+Seguimiento LauO,utilidad_solicitud_generica_fid,"Hola {{hubspot_firstname}}, Este mensaje corresponde a una solicitud que realizaste previamente en Opción Yo.  Para continuar con su gestión, selecciona una opción.",,,,Manual activo,Mantenimiento
+Seguimiento LauraP,utilidad_solicitud_generica_fid,"Hola {{hubspot_firstname}}, Este mensaje corresponde a una solicitud que realizaste previamente en Opción Yo.  Para continuar con su gestión, selecciona una opción.",,,,Manual activo,Cancelaciones
+Segunda Sesión - Si asistió,sgm_2ss_v2,"Hola {{hubspot_firstname}} Te escribo para dar seguimiento a tu segunda sesión. ¿Todo se está desarrollando correctamente con tu especialista? Si necesitas apoyo para ajustar algo, puedo ayudarte.",Quiero que me escribas    Todo Estuvo bien ,Utilidad,Cuando completa exitosamente su segunda sesión,Push Activo,Consultores
+Sesion gratis: Urgencia Especialista cancela,reagendar_error_especialista_regalo_sesion,"Hola {{hubspot_firstname}},   Tu especialista tuvo un contratiempo de último momento y no podrá tener la sesión acordada. Te pedimos las disculpas del caso a nombre de Opción Yo por este inconveniente y por avisar con tan poca anticipación, te queremos regalar una sesión extra. Te agradecemos muchisimo la comprensión.",,,,Manual activo,ATC
+Sin sesiones agendadas,vigencia_sesiones_sin_agendar,"Hola {{hubspot_firstname}}, hay sesiones disponibles en tu cuenta con vencimiento próximo. Puedes revisarlas y agendarlas desde la plataforma. Si requieres asistencia, estamos disponibles para ayudarte.",Sin botones,Utilidad,Cuando no tiene agendadas sus sesiones,Push Activo,ATC
+Solicitar Meet Especialista,esp_solicitar_ayuda_pt,"Hola {{hubspot_firstname}}, tu cliente no puede ingresar a su sesión programada. ¿Podrías enviarnos el link de Google Meet para ayudarle a conectarse? Muchas gracias.",,,,Manual activo,ATC
+Solicitud de Freepass por especialista,pedido_freepass_por_esp,"Hola {{hubspot_firstname}}, tu especialista nos indicó que solicitas recuperar la última sesión a la que no pudiste asistir. ¿Puedes reagendar en este momento? Quedamos pendientes.",,,,Manual activo,ATC
+Solicitud de Postergar pago,,,,,,Inactivo,
+Soporte - Inbound,,"Hola {{hubspot_firstname}}, nos comunicamos contigo en respuesta a tu solicitud. ¿Tienes un momento para revisarlo ahora?",,,,Inbound,
+Soporte - Saludo,responder_comunicacion,"Hola {{hubspot_firstname}}, nos comunicamos contigo en respuesta a tu solicitud. ¿Tienes un momento para revisarlo ahora?",,,,Manual activo,ATC
+Tercera sesión si asistió,ss_3ra_ss_si_asistio_v6,"Hola {{hubspot_firstname}} Soy {{hubspot_hsm_nombre_consultor}}. Paso para verificar que tu proceso continua bien. Si necesitas realizar algún cambio o tienes alguna inquietud, puedes escribirme.",Quiero que me escribas                          Todo Estuvo bien ,Utilidad,Cuando completa exitosamente su tercera sesión,Push Activo,Consultores
+Tus Apegos Invitación,,,,,,Inactivo,
+Urgencia: Especialista cancela,cancelacion_por_urgencias_especialistas,Hola {{hubspot_firstname}} Tu especialista nos avisó que tuvo una emergencia por lo tanto tiene que cancelar la sesión del día de hoy. Nos solicitó que te apoyemos a reagendar y recuperar la sesión. Mil disculpas y muchas gracias por tu comprensión,,Utilidad,,Manual activo,ATC
+YO FEST - recordatorio 16 de junio,,,,Utilidad,,Inactivo,
+YO FEST- CLIENTE ACTIVO,,,,Utilidad,,Inactivo,
+Próximo paso de tu proceso,proximo_paso_de_tu_proceso_1,"Hola, {{hubspot_firstname}}. En las próximas 24 horas te llamaremos desde el *+1* *(305)* *767-9862* para ayudarte a elegir a tu especialista y brindarte la información necesaria antes de iniciar tus sesiones. *Guarda* *este* *número* *en* *tus* *contactos* *para* *que* *podamos* *comunicarnos* *contigo.*
+
+
+
+
+
+
+
+
+
+
+
+
+
+",Sin botones,Utilidad,,Manual activo,
+Información importante sobre tu proceso,proximo_paso_de_tu_proceso,"*Hola,* *{{hubspot_firstname}}.* Ya tienes tu primera sesión agendada. En las próximas 24 horas te llamaremos desde el *+1* *(305)* *767-9862* para brindarte información importante sobre el inicio de tu proceso y resolver cualquier duda antes de tus sesiones. *Guarda* *este* *número* *en* *tus* *contactos* *para* *que* *podamos* *comunicarnos* *contigo.*",Sin botones,Utilidad,,Manual activo,
+Coordinemos una nueva llamada,coordinemos_una_nueva_llamada,"Hola, {{hubspot_firstname}}, No logramos comunicarnos contigo en el horario acordado para tu llamada de inicio. ¿En qué horario te resulta más conveniente que te llamemos? Respóndenos por este medio y coordinaremos una nueva llamada.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+",Sin botones,Utilidad,,Manual activo,
+Próximo paso de tu cambio de especialista,proximo_paso_de_tu_cambio_de_especialista,"Hola, *{{hubspot_firstname}}*. Soy *{{hubspot_admin_consultor}}*, tu consultor en Opción Yo. Quiero ayudarte con tu solicitud de cambio de especialista. *¿Qué* *horario* *te* *resulta* *más* *conveniente* *para* *que* *te* *llame?* Respóndeme por este medio y coordinaremos la llamada.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+",Sin botones,Utilidad,,Manual activo,
+Seguimiento a tu proceso,seguimiento_a_tu_proceso,"Hola,{{hubspot_firstname}}. Soy {{hubspot_hsm_nombre_consultor}}, tu consultor en Opción Yo. Como parte de tu proceso, quiero hacer un breve seguimiento para conversar sobre tus primeras sesiones y acompañarte si hay alguna duda o situación en la que pueda ayudarte. ¿Qué horario te resulta más conveniente para que te llame? Respóndeme por este medio y coordinaremos la llamada.",Sin botones,Utilidad,,Manual activo,
