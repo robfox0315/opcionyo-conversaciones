@@ -28,6 +28,15 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# ── Detección de tema (claro/oscuro) ────────────────────────────
+# Los gráficos de Plotly se renderizan en un iframe aparte y NO heredan el CSS
+# de Streamlit, así que necesitamos saber el tema activo para elegir colores de
+# texto legibles a mano (si no, el texto oscuro queda invisible en modo oscuro).
+try:
+    IS_DARK = st.context.theme.type == "dark"
+except Exception:
+    IS_DARK = False
+
 # ── Paleta corporativa (consistente con dashboards ATC / Refunds / Incidencias) ──
 OY_TEAL      = "#16B6C2"
 OY_TEAL_DARK = "#0E8E99"
@@ -40,6 +49,10 @@ OY_PURPLE    = "#7E57C2"
 COLOR_SEQ    = [OY_TEAL, OY_BLUE, OY_AMBER, OY_PURPLE, "#EC4899",
                 "#26A69A", "#FF7043", "#42A5F5", "#9CCC65", "#5C6BC0"]
 
+# Colores de texto para gráficos, adaptados al tema activo
+OY_CHART_TEXT  = "#E8EEF0" if IS_DARK else OY_INK
+OY_CHART_TITLE = "#5FD8E3" if IS_DARK else OY_TEAL_DARK
+
 REGION = {"1": "EE.UU./Canadá", "34": "España", "52": "México", "58": "Venezuela",
           "57": "Colombia", "507": "Panamá", "44": "UK", "56": "Chile",
           "39": "Italia", "49": "Alemania", "61": "Australia", "593": "Ecuador",
@@ -47,16 +60,16 @@ REGION = {"1": "EE.UU./Canadá", "34": "España", "52": "México", "58": "Venezu
           "351": "Portugal", "31": "Países Bajos", "54": "Argentina",
           "353": "Irlanda"}
 
-# ── CSS (idéntico lenguaje visual a los otros dashboards de Opción Yo) ──
+# ── CSS (idéntico lenguaje visual a los otros dashboards de Opción Yo, compatible con modo oscuro) ──
 st.markdown("""
 <style>
 :root{--oy-teal:#16B6C2;--oy-td:#0E8E99;--oy-blue:#2F80ED;
       --oy-ok:#27AE60;--oy-warn:#E5484D;--oy-amb:#F2A33C;--oy-ink:#16323A;}
-.stApp{background:#fff;}
+/* No forzamos fondo — dejamos que Streamlit use su propio tema (claro u oscuro) */
 .block-container{padding-top:1.5rem;}
-h1,h2,h3{color:var(--oy-td);}
-[data-testid="stMetricValue"]{font-size:1.7rem!important;font-weight:800;color:var(--oy-ink);}
-[data-testid="stMetricLabel"]{font-size:.78rem!important;color:#5a6b72;font-weight:600;}
+h1,h2,h3{color:var(--oy-teal);}
+[data-testid="stMetricValue"]{font-size:1.7rem!important;font-weight:800;}
+[data-testid="stMetricLabel"]{font-size:.78rem!important;font-weight:600;opacity:.85;}
 
 .oy-header{display:flex;align-items:center;gap:18px;
   background:linear-gradient(100deg,var(--oy-td) 0%,var(--oy-teal) 48%,#27D0DC 100%);
@@ -159,9 +172,12 @@ def kpi(label, value, delta="", kind=""):
 
 def sfig(fig, h=340):
     fig.update_layout(height=h, margin=dict(t=46, b=10, l=10, r=10),
-                       font=dict(color=OY_INK, family="Segoe UI,sans-serif"),
+                       font=dict(color=OY_CHART_TEXT, family="Segoe UI,sans-serif"),
                        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-                       title_font=dict(color=OY_TEAL_DARK, size=14))
+                       title_font=dict(color=OY_CHART_TITLE, size=14),
+                       legend=dict(font=dict(color=OY_CHART_TEXT)))
+    fig.update_xaxes(color=OY_CHART_TEXT, gridcolor="rgba(128,128,128,.25)")
+    fig.update_yaxes(color=OY_CHART_TEXT, gridcolor="rgba(128,128,128,.25)")
     return fig
 
 
@@ -300,9 +316,37 @@ def load_catalog():
         st.error(f"No se pudo leer catalog.csv: {e}")
         st.stop()
     df["estado"] = df["estado"].fillna("Sin clasificar")
+
+    # Compatibilidad: si el catálogo ya viene "completo" (auditado, con equipo_fuente,
+    # nivel_documentacion, envios_historicos, etc.) usamos esas columnas tal cual.
+    # Si no, calculamos los campos mínimos para que el dashboard no rompa.
+    if "activo" not in df.columns:
+        df["activo"] = df["estado"].isin(["Push Activo", "Manual activo", "Inbound"])
+    else:
+        df["activo"] = df["activo"].astype(str).map({"True": True, "False": False}).fillna(df["activo"])
+
+    if "equipo" not in df.columns:
+        df["equipo"] = "Sin asignar"
     df["equipo"] = df["equipo"].fillna("Sin asignar")
+
+    if "tipo" not in df.columns:
+        df["tipo"] = "Sin clasificar"
     df["tipo"] = df["tipo"].fillna("Sin clasificar")
-    df["activo"] = df["estado"].isin(["Push Activo", "Manual activo", "Inbound"])
+
+    for c in ["equipo_fuente", "nivel_documentacion", "auditoria"]:
+        if c not in df.columns:
+            df[c] = "—"
+    if "en_uso_real" not in df.columns:
+        df["en_uso_real"] = False
+    else:
+        df["en_uso_real"] = df["en_uso_real"].astype(str).map({"True": True, "False": False}).fillna(False)
+    for c in ["envios_historicos", "entregados_historicos", "n_envios_batches"]:
+        if c not in df.columns:
+            df[c] = 0
+        df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).astype(int)
+    if "tasa_respuesta_hist" not in df.columns:
+        df["tasa_respuesta_hist"] = np.nan
+
     return df
 
 
@@ -311,40 +355,8 @@ sr = load_sessions()
 cat = load_catalog()
 
 # ══════════════════════════════════════════════════════════════
-#  SIDEBAR · FILTROS Y SUPUESTO DE COSTO
+#  SIDEBAR · SOLO MODELO DE COSTO (los filtros viven en cada pestaña)
 # ══════════════════════════════════════════════════════════════
-st.sidebar.markdown("### 🎛️ Filtros")
-st.sidebar.caption(
-    f"📅 Reporte de pushes: {gr['fecha'].min()} → {gr['fecha'].max()}\n\n"
-    f"💬 Sesiones conversacionales: {sr['fecha'].min()} → {sr['fecha'].max()}"
-)
-
-min_d, max_d = gr["fecha"].min(), gr["fecha"].max()
-rango = st.sidebar.date_input("Rango de fechas · Pushes", value=(min_d, max_d),
-                               min_value=min_d, max_value=max_d)
-if isinstance(rango, tuple) and len(rango) == 2:
-    f_ini, f_fin = rango
-else:
-    f_ini, f_fin = min_d, max_d
-
-gr_f = gr[(gr["fecha"] >= f_ini) & (gr["fecha"] <= f_fin)]
-
-campanas_sel = st.sidebar.multiselect("Push / Campaña", sorted(gr["name_clean"].unique()), default=[])
-if campanas_sel:
-    gr_f = gr_f[gr_f["name_clean"].isin(campanas_sel)]
-
-st.sidebar.markdown("---")
-st.sidebar.caption("💬 Filtro independiente para pestaña Conversaciones (ventana disponible del export)")
-min_ds, max_ds = sr["fecha"].min(), sr["fecha"].max()
-rango_s = st.sidebar.date_input("Rango de fechas · Conversaciones", value=(min_ds, max_ds),
-                                 min_value=min_ds, max_value=max_ds)
-if isinstance(rango_s, tuple) and len(rango_s) == 2:
-    fs_ini, fs_fin = rango_s
-else:
-    fs_ini, fs_fin = min_ds, max_ds
-sr_f = sr[(sr["fecha"] >= fs_ini) & (sr["fecha"] <= fs_fin)]
-
-st.sidebar.markdown("---")
 st.sidebar.markdown("### 💰 Modelo de costo")
 st.sidebar.caption(
     "Treble/WhatsApp cobra por **conversación** de 24h, en tramos según volumen mensual — "
@@ -383,9 +395,14 @@ modelo_costo = st.sidebar.radio(
 
 st.sidebar.markdown("---")
 st.sidebar.caption(
+    f"📅 Reporte de pushes: {gr['fecha'].min()} → {gr['fecha'].max()}\n\n"
+    f"💬 Sesiones conversacionales: {sr['fecha'].min()} → {sr['fecha'].max()}\n\n"
+    "Cada pestaña tiene su propio filtro de fechas y búsqueda arriba del contenido."
+)
+st.sidebar.caption(
     "**Fuentes:** reporte general Treble/WhatsApp (envíos automáticos), reporte de sesiones "
-    "conversacionales, catálogo interno de plantillas y export nativo de Treble 'Inversión' "
-    "(tarifas reales, auditadas).\n\n"
+    "conversacionales, catálogo interno de plantillas (auditado y completado) y export nativo "
+    "de Treble 'Inversión' (tarifas reales, auditadas).\n\n"
     "**Fuera de alcance (a propósito):** tickets de incidencias técnicas / HubSpot — "
     "eso vive en el dashboard **Incidencias Técnicas**, aparte."
 )
@@ -396,8 +413,9 @@ st.sidebar.caption(
 # ══════════════════════════════════════════════════════════════
 # El tramo de tarifa se calcula sobre el volumen TOTAL de la cuenta ese mes
 # (todos los pushes juntos), no por campaña individual — así es como Treble
-# factura realmente. Se calcula siempre sobre gr completo (no el filtrado)
-# para que la tarifa de cada mes sea la real, independiente del filtro activo.
+# factura realmente. Se calcula siempre sobre gr completo (no un filtro),
+# para que la tarifa de cada mes sea la real, independiente de qué filtre
+# cada pestaña por separado.
 _tarifa_mensual_real = (
     gr.groupby("mes", observed=True)["delivered"].sum().apply(tarifa_por_tramo).to_dict()
 )
@@ -420,7 +438,16 @@ def con_costo(df):
     return df
 
 
-gr_costo = con_costo(gr_f)
+def filtro_fechas(df, col_fecha, key_prefix, label="Rango de fechas"):
+    """Widget de rango de fechas reutilizable, para usar dentro de cada pestaña."""
+    min_d, max_d = df[col_fecha].min(), df[col_fecha].max()
+    rango = st.date_input(label, value=(min_d, max_d), min_value=min_d, max_value=max_d,
+                           key=f"{key_prefix}_fecha")
+    if isinstance(rango, tuple) and len(rango) == 2:
+        ini, fin = rango
+    else:
+        ini, fin = min_d, max_d
+    return df[(df[col_fecha] >= ini) & (df[col_fecha] <= fin)]
 
 
 # ══════════════════════════════════════════════════════════════
@@ -437,6 +464,21 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 # ────────────────────────────────────────────────────────────────
 with tab1:
     st.markdown('<span class="sec">Panorama general del período seleccionado</span>', unsafe_allow_html=True)
+
+    fc1, fc2 = st.columns([1, 3])
+    with fc1:
+        rango1 = st.date_input("📅 Rango de fechas (pushes y conversaciones)",
+                                value=(min(gr["fecha"].min(), sr["fecha"].min()),
+                                       max(gr["fecha"].max(), sr["fecha"].max())),
+                                key="t1_fecha")
+    if isinstance(rango1, tuple) and len(rango1) == 2:
+        r1_ini, r1_fin = rango1
+    else:
+        r1_ini, r1_fin = gr["fecha"].min(), sr["fecha"].max()
+
+    gr_f = gr[(gr["fecha"] >= r1_ini) & (gr["fecha"] <= r1_fin)]
+    sr_f = sr[(sr["fecha"] >= r1_ini) & (sr["fecha"] <= r1_fin)]
+    gr_costo = con_costo(gr_f)
 
     envios = int(gr_f["successful"].sum())
     entregados = int(gr_f["delivered"].sum())
@@ -521,6 +563,27 @@ with tab1:
 with tab2:
     st.markdown('<span class="sec">Desempeño y costo por push / plantilla automática</span>', unsafe_allow_html=True)
 
+    st.markdown('<span class="sec blue">🔍 Opciones de búsqueda</span>', unsafe_allow_html=True)
+    fc1, fc2 = st.columns([1, 2])
+    with fc1:
+        rango2 = st.date_input("📅 Rango de fechas", value=(gr["fecha"].min(), gr["fecha"].max()),
+                                min_value=gr["fecha"].min(), max_value=gr["fecha"].max(), key="t2_fecha")
+    with fc2:
+        campanas_sel = st.multiselect("Buscar / filtrar por push o campaña específica",
+                                       sorted(gr["name_clean"].unique()), default=[], key="t2_campanas")
+
+    if isinstance(rango2, tuple) and len(rango2) == 2:
+        r2_ini, r2_fin = rango2
+    else:
+        r2_ini, r2_fin = gr["fecha"].min(), gr["fecha"].max()
+
+    gr_f = gr[(gr["fecha"] >= r2_ini) & (gr["fecha"] <= r2_fin)]
+    if campanas_sel:
+        gr_f = gr_f[gr_f["name_clean"].isin(campanas_sel)]
+    gr_costo = con_costo(gr_f)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
     agg = gr_costo.groupby("name_clean", observed=True).agg(
         envios=("successful", "sum"),
         entregados=("delivered", "sum"),
@@ -533,22 +596,30 @@ with tab2:
     agg["tasa_respuesta_%"] = (agg["resp_pond"] / agg["envios"] * 100).round(1)
     agg = agg.drop(columns=["resp_pond"]).sort_values("costo_estimado", ascending=False)
 
-    # Cruce con catálogo para traer equipo dueño
-    cat_lookup = cat.set_index("conversacion")[["equipo", "estado"]]
-    def _equipo(n):
+    # Cruce con catálogo para traer equipo dueño Y si la plantilla está activa
+    cat_lookup = cat.set_index("conversacion")[["equipo", "estado", "activo"]]
+    def _cat_match(n):
         for k in cat_lookup.index:
             if k.strip().lower() in n.lower() or n.lower() in k.strip().lower():
-                return cat_lookup.loc[k, "equipo"]
-        return "Sin match en catálogo"
-    agg["equipo"] = agg["name_clean"].map(_equipo)
+                return cat_lookup.loc[k, "equipo"], cat_lookup.loc[k, "estado"], cat_lookup.loc[k, "activo"]
+        return "Sin match en catálogo", "Sin match", None
+    _res = [_cat_match(n) for n in agg["name_clean"]]
+    agg["equipo"] = [r[0] for r in _res]
+    agg["estado_catalogo"] = [r[1] for r in _res]
+    agg["activo"] = [r[2] for r in _res]
+    agg["Activo"] = agg["activo"].map({True: "✅ Sí", False: "⛔ No"}).fillna("❓ Sin match")
 
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
     c1.markdown(kpi("Costo total estimado", fmt_usd(agg["costo_estimado"].sum()), "período seleccionado", "warn"),
                 unsafe_allow_html=True)
     c2.markdown(kpi("Pushes con envíos", f"{len(agg)}", "", ""), unsafe_allow_html=True)
+    inactivos_con_envio = int((agg["activo"] == False).sum())
+    c3.markdown(kpi("Marcados inactivos pero con envíos", f"{inactivos_con_envio}",
+                    "revisar en catálogo" if inactivos_con_envio else "", "warn" if inactivos_con_envio else "ok"),
+                unsafe_allow_html=True)
     mas_caro = agg.iloc[0] if len(agg) else None
     if mas_caro is not None:
-        c3.markdown(kpi("Push más costoso", fmt_usd(mas_caro["costo_estimado"]), mas_caro["name_clean"][:30], "amber"),
+        c4.markdown(kpi("Push más costoso", fmt_usd(mas_caro["costo_estimado"]), mas_caro["name_clean"][:30], "amber"),
                     unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -558,8 +629,11 @@ with tab2:
         "conversaciones_facturables": "Conversaciones facturables (est.)",
         "costo_estimado": "Costo estimado (USD)", "n_batches": "N° envíos (batches)", "equipo": "Equipo dueño"
     })
+    cols_tabla = ["Push / Campaña", "Activo", "Equipo dueño", "Enviados", "Entregados",
+                  "Conversaciones facturables (est.)", "Costo estimado (USD)",
+                  "tasa_entrega_%", "tasa_respuesta_%", "N° envíos (batches)"]
     st.dataframe(
-        tabla, use_container_width=True, hide_index=True,
+        tabla[cols_tabla], use_container_width=True, hide_index=True,
         column_config={
             "Costo estimado (USD)": st.column_config.NumberColumn(format="$%.2f"),
             "tasa_entrega_%": st.column_config.ProgressColumn("Tasa entrega %", min_value=0, max_value=100, format="%.1f%%"),
@@ -568,7 +642,9 @@ with tab2:
     )
     st.caption(
         "💡 'Conversaciones facturables (est.)' depende del supuesto elegido en la barra lateral: "
-        "todo lo entregado, o solo lo que generó respuesta."
+        "todo lo entregado, o solo lo que generó respuesta. 'Activo' viene del catálogo de plantillas "
+        "(pestaña 🗂️ Catálogo) — si dice '⛔ No' pero tiene envíos reales aquí, hay una inconsistencia "
+        "entre lo documentado y lo que realmente se está enviando (revisar con Iva)."
     )
 
     # ── Auditoría: validación de la tarifa real contra el gasto reportado por Treble ──
@@ -650,6 +726,17 @@ with tab2:
 with tab3:
     st.markdown('<span class="sec">Análisis conversacional (sesiones de WhatsApp)</span>', unsafe_allow_html=True)
 
+    fc1, fc2 = st.columns([1, 3])
+    with fc1:
+        rango3 = st.date_input("📅 Rango de fechas", value=(sr["fecha"].min(), sr["fecha"].max()),
+                                min_value=sr["fecha"].min(), max_value=sr["fecha"].max(), key="t3_fecha")
+    if isinstance(rango3, tuple) and len(rango3) == 2:
+        r3_ini, r3_fin = rango3
+    else:
+        r3_ini, r3_fin = sr["fecha"].min(), sr["fecha"].max()
+    sr_f = sr[(sr["fecha"] >= r3_ini) & (sr["fecha"] <= r3_fin)]
+
+    st.markdown("<br>", unsafe_allow_html=True)
     c = st.columns(5)
     total_s = len(sr_f)
     ai_pct = safe_pct((sr_f["session_status"] == "AI").sum(), total_s)
@@ -723,6 +810,18 @@ with tab4:
     c3.markdown(kpi("Inactivas", f"{int((cat['estado']=='Inactivo').sum())}", "", "warn"), unsafe_allow_html=True)
     c4.markdown(kpi("Equipos dueños", f"{cat['equipo'].nunique()}", "", "purple"), unsafe_allow_html=True)
 
+    inconsistentes = cat[cat["auditoria"].astype(str).str.startswith("⚠️", na=False)]
+    if len(inconsistentes):
+        st.markdown("<br>", unsafe_allow_html=True)
+        detalle = ", ".join(inconsistentes["conversacion"].tolist())
+        st.markdown(
+            f'<div class="alrt">⚠️ <b>Auditoría — {len(inconsistentes)} plantillas marcadas "Inactivo" en el '
+            f'catálogo pero con envíos reales registrados:</b> {detalle}. El catálogo (spreadsheet) está '
+            f'desactualizado respecto a lo que realmente se está enviando — conviene corregirlo con Iva '
+            f'para que el estado documentado refleje la realidad.</div>',
+            unsafe_allow_html=True
+        )
+
     st.markdown("<br>", unsafe_allow_html=True)
     col1, col2 = st.columns(2)
     with col1:
@@ -734,32 +833,48 @@ with tab4:
         fig.update_layout(xaxis_title="", yaxis_title="N° plantillas", legend_title="")
         st.plotly_chart(sfig(fig, 340), use_container_width=True)
     with col2:
-        st.markdown('<span class="sec amb">Distribución por tipo de mensaje</span>', unsafe_allow_html=True)
-        t = cat["tipo"].value_counts().reset_index()
-        t.columns = ["tipo", "n"]
-        fig = px.pie(t, names="tipo", values="n", hole=.5, color_discrete_sequence=COLOR_SEQ)
+        st.markdown('<span class="sec amb">Nivel de documentación del catálogo</span>', unsafe_allow_html=True)
+        nd = cat["nivel_documentacion"].value_counts().reset_index()
+        nd.columns = ["nivel", "n"]
+        fig = px.pie(nd, names="nivel", values="n", hole=.5,
+                     color="nivel", color_discrete_map={"Completa": OY_OK, "Parcial": OY_AMBER, "Sin documentar": OY_WARN})
         st.plotly_chart(sfig(fig, 340), use_container_width=True)
+    st.caption(
+        "💡 'Nivel de documentación' indica si el catálogo original tenía cargado el mensaje, tipo y "
+        "propósito de cada plantilla, o si quedó incompleto. Las plantillas 'Sin documentar' no se "
+        "inventaron — se dejaron explícitamente marcadas así para no mostrar información falsa."
+    )
 
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown('<span class="sec">Explorador del catálogo</span>', unsafe_allow_html=True)
-    fc1, fc2, fc3 = st.columns(3)
+    fc1, fc2, fc3, fc4 = st.columns(4)
     equipo_f = fc1.multiselect("Equipo", sorted(cat["equipo"].unique()))
     estado_f = fc2.multiselect("Estado", sorted(cat["estado"].unique()))
-    buscar = fc3.text_input("Buscar por nombre de conversación")
+    doc_f = fc3.multiselect("Nivel de documentación", sorted(cat["nivel_documentacion"].unique()))
+    buscar = fc4.text_input("Buscar por nombre")
 
     cat_f = cat.copy()
     if equipo_f:
         cat_f = cat_f[cat_f["equipo"].isin(equipo_f)]
     if estado_f:
         cat_f = cat_f[cat_f["estado"].isin(estado_f)]
+    if doc_f:
+        cat_f = cat_f[cat_f["nivel_documentacion"].isin(doc_f)]
     if buscar:
         cat_f = cat_f[cat_f["conversacion"].str.contains(buscar, case=False, na=False)]
 
     st.dataframe(
-        cat_f[["conversacion", "plantilla", "tipo", "proposito", "estado", "equipo"]].rename(columns={
+        cat_f[["conversacion", "plantilla", "tipo", "proposito", "estado", "equipo",
+               "envios_historicos", "entregados_historicos", "auditoria"]].rename(columns={
             "conversacion": "Conversación / Campaña", "plantilla": "HSM / Plantilla",
-            "tipo": "Tipo", "proposito": "Para qué se envía", "estado": "Estado", "equipo": "Equipo"
+            "tipo": "Tipo", "proposito": "Para qué se envía", "estado": "Estado", "equipo": "Equipo",
+            "envios_historicos": "Envíos reales (histórico)", "entregados_historicos": "Entregados reales",
+            "auditoria": "Nota de auditoría"
         }), use_container_width=True, hide_index=True, height=420
+    )
+    st.caption(
+        "'Envíos reales (histórico)' y 'Entregados reales' vienen del cruce directo con el Reporte "
+        "general de Treble — no son estimados."
     )
 
 
