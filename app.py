@@ -196,6 +196,14 @@ def fmt_usd(v):
     return f"${v:,.2f}"
 
 
+def _norm_txt(s):
+    """Normaliza texto para comparar nombres de campañas sin que tildes/mayúsculas generen falsos 'sin match'."""
+    import unicodedata
+    s = str(s).strip().lower()
+    s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode("ascii")
+    return s
+
+
 def find_data_file(name: str):
     """Busca el archivo tanto en data/ como en la raíz del repo (tolerante a estructura)."""
     candidates = [
@@ -380,6 +388,10 @@ def load_arbol():
     df["alt_clientes"] = df["alt_clientes"].fillna(0)
     df["alt_share"] = df["alt_clientes"] / total_nodo.values
     df["fuga_real"] = df["Es Fuga"] & (df["alt_share"] >= 0.05)
+
+    # Entrantes por plantilla (volumen del primer paso) — para dar contexto en % y no solo cifras sueltas
+    entrantes = df[df["Paso Origen"] == 1].groupby("Plantilla")["N Clientes"].sum()
+    df["entrantes_plantilla"] = df["Plantilla"].map(entrantes)
     return df
 
 
@@ -643,13 +655,16 @@ with tab2:
     st.markdown('<span class="sec">Desempeño y costo por push / plantilla automática</span>', unsafe_allow_html=True)
 
     st.markdown('<span class="sec blue">🔍 Opciones de búsqueda</span>', unsafe_allow_html=True)
-    fc1, fc2 = st.columns([1, 2])
+    fc1, fc2, fc3 = st.columns([1, 1.6, 1])
     with fc1:
         rango2 = st.date_input("📅 Rango de fechas", value=(gr["fecha"].min(), gr["fecha"].max()),
                                 min_value=gr["fecha"].min(), max_value=gr["fecha"].max(), key="t2_fecha")
     with fc2:
         campanas_sel = st.multiselect("Buscar / filtrar por push o campaña específica",
                                        sorted(gr["name_clean"].unique()), default=[], key="t2_campanas")
+    with fc3:
+        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+        ocultar_inactivos = st.checkbox("Ocultar inactivos", value=False, key="t2_ocultar_inactivos")
 
     if isinstance(rango2, tuple) and len(rango2) == 2:
         r2_ini, r2_fin = rango2
@@ -675,11 +690,14 @@ with tab2:
     agg["tasa_respuesta_%"] = (agg["resp_pond"] / agg["envios"] * 100).round(1)
     agg = agg.drop(columns=["resp_pond"]).sort_values("costo_estimado", ascending=False)
 
-    # Cruce con catálogo para traer equipo dueño Y si la plantilla está activa
+    # Cruce con catálogo (matching normalizado sin tildes, para no perder coincidencias
+    # por un simple "Envio" vs "Envío") para traer equipo dueño Y si la plantilla está activa
     cat_lookup = cat.set_index("conversacion")[["equipo", "estado", "activo"]]
+    cat_norm_index = {_norm_txt(k): k for k in cat_lookup.index}
     def _cat_match(n):
-        for k in cat_lookup.index:
-            if k.strip().lower() in n.lower() or n.lower() in k.strip().lower():
+        n_norm = _norm_txt(n)
+        for k_norm, k in cat_norm_index.items():
+            if k_norm in n_norm or n_norm in k_norm:
                 return cat_lookup.loc[k, "equipo"], cat_lookup.loc[k, "estado"], cat_lookup.loc[k, "activo"]
         return "Sin match en catálogo", "Sin match", None
     _res = [_cat_match(n) for n in agg["name_clean"]]
@@ -688,11 +706,15 @@ with tab2:
     agg["activo"] = [r[2] for r in _res]
     agg["Activo"] = agg["activo"].map({True: "✅ Sí", False: "⛔ No"}).fillna("❓ Sin match")
 
+    inactivos_con_envio = int((agg["activo"] == False).sum())
+
+    if ocultar_inactivos:
+        agg = agg[agg["activo"] != False]
+
     c1, c2, c3, c4 = st.columns(4)
     c1.markdown(kpi("Costo total estimado", fmt_usd(agg["costo_estimado"].sum()), "período seleccionado", "warn"),
                 unsafe_allow_html=True)
     c2.markdown(kpi("Pushes con envíos", f"{len(agg)}", "", ""), unsafe_allow_html=True)
-    inactivos_con_envio = int((agg["activo"] == False).sum())
     c3.markdown(kpi("Marcados inactivos pero con envíos", f"{inactivos_con_envio}",
                     "revisar en catálogo" if inactivos_con_envio else "", "warn" if inactivos_con_envio else "ok"),
                 unsafe_allow_html=True)
@@ -1084,13 +1106,25 @@ with tab6:
 
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown('<span class="sec red">Ranking de plantillas por volumen de fuga real</span>', unsafe_allow_html=True)
+        st.caption(
+            "Cada barra = cuántos clientes recibieron esa plantilla, tenían una opción real para "
+            "responder, y aun así no respondieron. El % es sobre el total de gente que entró a esa "
+            "plantilla (no sobre el total general)."
+        )
         rank = fuga_real_df.groupby("Plantilla").agg(
-            fuga_real=("N Clientes", "sum"), puntos_de_quiebre=("Origen ID", "nunique")
+            fuga_real=("N Clientes", "sum"), puntos_de_quiebre=("Origen ID", "nunique"),
+            entrantes=("entrantes_plantilla", "first"),
         ).reset_index().sort_values("fuga_real", ascending=False)
-        fig = px.bar(rank.head(15).sort_values("fuga_real"), x="fuga_real", y="Plantilla", orientation="h",
-                     color_discrete_sequence=[OY_WARN], text="fuga_real")
-        fig.update_layout(xaxis_title="Clientes en fuga real", yaxis_title="")
-        st.plotly_chart(sfig(fig, 420), use_container_width=True)
+        rank["pct_entrantes"] = (rank["fuga_real"] / rank["entrantes"] * 100).round(1)
+        rank["etiqueta"] = rank.apply(lambda r: f"{int(r['fuga_real']):,} ({r['pct_entrantes']:.0f}% de {int(r['entrantes']):,} entrantes)", axis=1)
+
+        top15 = rank.head(15).sort_values("fuga_real")
+        fig = px.bar(top15, x="fuga_real", y="Plantilla", orientation="h",
+                     color_discrete_sequence=[OY_WARN], text="etiqueta")
+        fig.update_traces(textposition="outside", textfont=dict(size=11))
+        fig.update_layout(xaxis_title="Clientes en fuga real", yaxis_title="",
+                           margin=dict(r=220))  # espacio para que la etiqueta no se corte
+        st.plotly_chart(sfig(fig, 460), use_container_width=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown('<span class="sec purple">Inspeccionar un flujo específico</span>', unsafe_allow_html=True)
@@ -1100,35 +1134,71 @@ with tab6:
         # Nos quedamos con un Poll ID representativo (el de mayor volumen) para que el
         # diagrama no mezcle instancias distintas del mismo flujo
         poll_top = sub.groupby("Poll ID")["N Clientes"].sum().idxmax()
-        sub = sub[sub["Poll ID"] == poll_top]
+        sub = sub[sub["Poll ID"] == poll_top].copy()
 
-        col1, col2 = st.columns([1.3, 1])
+        # Para que el Sankey se lea, agrupamos las ramas muy chicas (<3% del total del flujo)
+        # en un solo nodo "Otros caminos (n)" — si no, con 15+ ramas finitas no se entiende nada.
+        total_flujo = sub["N Clientes"].sum()
+        sub["es_chica"] = sub["N Clientes"] / total_flujo < 0.03
+        n_chicas = int(sub["es_chica"].sum())
+        if n_chicas >= 2:
+            chicas = sub[sub["es_chica"]]
+            resto = sub[~sub["es_chica"]].copy()
+            agregada = pd.DataFrame([{
+                "Nodo Origen Key": "Varios pasos del flujo",
+                "Nodo Destino Key": f"↳ Otros {n_chicas} caminos (agrupados)",
+                "N Clientes": chicas["N Clientes"].sum(),
+                "Es Fuga": False,
+                "Pct Del Nodo": None,
+            }])
+            sub = pd.concat([resto, agregada], ignore_index=True)
+
+        col1, col2 = st.columns([1.4, 1])
         with col1:
-            st.markdown('<span class="sec blue">Mapa del flujo (Sankey) — grosor = volumen de clientes</span>',
-                        unsafe_allow_html=True)
+            st.markdown('<span class="sec blue">Mapa del flujo (Sankey)</span>', unsafe_allow_html=True)
+            st.caption(
+                "Se lee de izquierda a derecha: cada barra es un mensaje, cada franja es cuánta gente "
+                "pasó de un mensaje al siguiente. 🔴 rojo = terminó en silencio · 🔵 teal = siguió "
+                "conversando. Ramas muy chicas (menos del 3% del flujo) se agrupan en 'Otros caminos' "
+                "para que se pueda leer."
+            )
+
+            def _etiqueta_nodo(n):
+                n = str(n)
+                # quitamos el prefijo técnico "P1 · " y cortamos a un largo legible
+                if " · " in n:
+                    n = n.split(" · ", 1)[1]
+                return (n[:38] + "…") if len(n) > 38 else n
+
             nodos = pd.unique(sub[["Nodo Origen Key", "Nodo Destino Key"]].values.ravel())
             nodo_idx = {n: i for i, n in enumerate(nodos)}
-            colores_nodo = [OY_WARN if "No avanzó" in n or "✖" in n else OY_TEAL for n in nodos]
+            colores_nodo = [OY_WARN if ("No avanzó" in n or "✖" in n) else
+                            (OY_AMBER if "Otros" in n else OY_TEAL) for n in nodos]
             link_colores = ["rgba(229,72,77,.55)" if f else "rgba(22,182,194,.35)" for f in sub["Es Fuga"]]
+            pct_total = (sub["N Clientes"] / total_flujo * 100).round(1)
             sankey = go.Figure(go.Sankey(
-                node=dict(label=[n[:45] for n in nodos], pad=14, thickness=16, color=colores_nodo,
-                          line=dict(color="rgba(0,0,0,.15)", width=.5)),
+                arrangement="snap",
+                node=dict(label=[_etiqueta_nodo(n) for n in nodos], pad=18, thickness=18,
+                          color=colores_nodo, line=dict(color="rgba(0,0,0,.15)", width=.5),
+                          hovertemplate="%{label}<extra></extra>"),
                 link=dict(source=sub["Nodo Origen Key"].map(nodo_idx),
                           target=sub["Nodo Destino Key"].map(nodo_idx),
-                          value=sub["N Clientes"], color=link_colores)
+                          value=sub["N Clientes"], color=link_colores,
+                          customdata=pct_total,
+                          hovertemplate="%{value:,} clientes (%{customdata}% del flujo)<extra></extra>")
             ))
-            st.plotly_chart(sfig(sankey, 480), use_container_width=True)
-            st.caption("🔴 Rojo = terminan en 'No avanzó' (silencio) · 🔵 Teal = siguen conversando. "
-                       "El grosor del enlace es proporcional a cuántos clientes tomaron ese camino.")
+            st.plotly_chart(sfig(sankey, 560), use_container_width=True)
         with col2:
             st.markdown('<span class="sec amb">Puntos de quiebre de este flujo</span>', unsafe_allow_html=True)
-            puntos = sub[sub["fuga_real"]][["Paso Origen", "Nodo Origen", "N Clientes", "Pct Del Nodo"]]
+            puntos = arbol[(arbol["Plantilla"] == plantilla_pick) & (arbol["Poll ID"] == poll_top)]
+            puntos = puntos[puntos["fuga_real"]][["Paso Origen", "Nodo Origen", "N Clientes", "Pct Del Nodo"]]
             puntos = puntos.sort_values("N Clientes", ascending=False)
             if len(puntos):
+                alto = min(420, 46 + 38 * len(puntos))
                 st.dataframe(
                     puntos.rename(columns={"Paso Origen": "Paso", "Nodo Origen": "Mensaje",
                                             "N Clientes": "Clientes en silencio", "Pct Del Nodo": "% del nodo"}),
-                    use_container_width=True, hide_index=True, height=420
+                    use_container_width=True, hide_index=True, height=alto
                 )
             else:
                 st.info("Este flujo no tiene puntos de fuga real detectados (es informativo de una sola vía, "
