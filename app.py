@@ -123,9 +123,7 @@ h1,h2,h3{color:var(--oy-teal);}
 
 st.markdown(
     '<div class="oy-header"><div class="oy-logo">opción<span> yo</span></div>'
-    '<div class="oy-htxt"><p class="oy-htitle">💬 Conversaciones y Pushes Automáticos</p>'
-    '<p class="oy-hsub">Volumen de WhatsApp/Treble y costo estimado de envíos automáticos · '
-    'No incluye incidencias técnicas (ver dashboard Incidencias Técnicas)</p></div></div>',
+    '<div class="oy-htxt"><p class="oy-htitle">💬 Conversaciones y Pushes Automáticos</p></div></div>',
     unsafe_allow_html=True,
 )
 
@@ -509,16 +507,23 @@ sr = load_sessions()
 cat = load_catalog()
 arbol = load_arbol()
 
-# ── Banner de estado del Data Warehouse (mismo estilo que la herramienta de Diosnel) ──
+# Filtro global de alcance: nos quedamos solo con campañas que están en el catálogo de
+# plantillas ATC. El DWH trae TODAS las líneas de Treble (incluida Ventas/Marketing, que
+# no es parte de este dashboard) — se filtra acá, una sola vez, para que Resumen, Pushes,
+# Insights y el comparador de períodos ya trabajen limpios sin repetir el filtro en cada pestaña.
+_cat_norm_set = [_norm_txt(k) for k in cat["conversacion"]]
+def _es_campana_atc(nombre):
+    n = _norm_txt(nombre)
+    return any(k in n or n in k for k in _cat_norm_set)
+
+_gr_campanas_antes = gr["name_clean"].nunique()
+gr = gr[gr["name_clean"].apply(_es_campana_atc)].copy()
+for c in ["name", "name_clean"]:
+    gr[c] = gr[c].astype("category")
+_campanas_fuera_alcance = _gr_campanas_antes - gr["name_clean"].nunique()
+
+# Estado del Data Warehouse (silencioso — se usa en la pestaña Árbol, no hace falta mostrarlo aquí)
 _dwh_ok, _dwh_msg, _dwh_tablas = dwh_status()
-if _dwh_ok:
-    st.markdown(f'<div class="good">🟢 <b>{_dwh_msg}</b> Pushes y Conversaciones se están leyendo en vivo '
-                f'del Data Warehouse ({len(_dwh_tablas)} tablas disponibles) — ya no dependen del CSV manual.</div>',
-                unsafe_allow_html=True)
-else:
-    st.markdown(f'<div class="alrt">🟡 <b>Data Warehouse no conectado:</b> {_dwh_msg} Usando los archivos CSV '
-                f'de <code>data/</code> como respaldo — el dashboard funciona igual, solo que con la última '
-                f'actualización manual en vez de en vivo.</div>', unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════
 #  CONFIGURACIÓN DEL MODELO DE COSTO (panel plegable, sin sidebar)
@@ -775,7 +780,7 @@ with tab2:
     st.markdown('<span class="sec">Desempeño y costo por push / plantilla automática</span>', unsafe_allow_html=True)
 
     st.markdown('<span class="sec blue">🔍 Opciones de búsqueda</span>', unsafe_allow_html=True)
-    fc1, fc2, fc3 = st.columns([1, 1.6, 1])
+    fc1, fc2, fc3, fc4 = st.columns([1, 1.4, 0.8, 0.8])
     with fc1:
         rango2 = st.date_input("📅 Rango de fechas", value=(gr["fecha"].min(), gr["fecha"].max()),
                                 min_value=gr["fecha"].min(), max_value=gr["fecha"].max(), key="t2_fecha")
@@ -785,6 +790,12 @@ with tab2:
     with fc3:
         st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
         ocultar_inactivos = st.checkbox("Ocultar inactivos", value=False, key="t2_ocultar_inactivos")
+    with fc4:
+        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+        ocultar_sin_match = st.checkbox("Ocultar sin match", value=True, key="t2_ocultar_sin_match",
+                                         help="Campañas que no están en el catálogo de plantillas ATC — "
+                                              "normalmente son de la línea de Ventas/Marketing, fuera del "
+                                              "alcance de este dashboard.")
 
     if isinstance(rango2, tuple) and len(rango2) == 2:
         r2_ini, r2_fin = rango2
@@ -827,9 +838,12 @@ with tab2:
     agg["Activo"] = agg["activo"].map({True: "✅ Sí", False: "⛔ No"}).fillna("❓ Sin match")
 
     inactivos_con_envio = int((agg["activo"] == False).sum())
+    sin_match_n = int((agg["estado_catalogo"] == "Sin match").sum())
 
     if ocultar_inactivos:
         agg = agg[agg["activo"] != False]
+    if ocultar_sin_match:
+        agg = agg[agg["estado_catalogo"] != "Sin match"]
 
     c1, c2, c3, c4 = st.columns(4)
     c1.markdown(kpi("Costo total estimado", fmt_usd(agg["costo_estimado"].sum()), "período seleccionado", "warn"),
@@ -862,10 +876,12 @@ with tab2:
         }
     )
     st.caption(
-        "💡 'Conversaciones facturables (est.)' depende del supuesto elegido en la barra lateral: "
+        "💡 'Conversaciones facturables (est.)' depende del modelo de costo elegido arriba (⚙️ Configuración): "
         "todo lo entregado, o solo lo que generó respuesta. 'Activo' viene del catálogo de plantillas "
         "(pestaña 🗂️ Catálogo) — si dice '⛔ No' pero tiene envíos reales aquí, hay una inconsistencia "
         "entre lo documentado y lo que realmente se está enviando (revisar con Iva)."
+        + (f" Hay {sin_match_n} campaña(s) sin match en el catálogo ocultas — normalmente son de la línea "
+           "de Ventas/Marketing, fuera del alcance de este dashboard." if ocultar_sin_match and sin_match_n else "")
     )
 
     # ── Auditoría: validación de la tarifa real contra el gasto reportado por Treble ──
@@ -1130,12 +1146,17 @@ with tab5:
     agg_full["tasa"] = agg_full["entregados"] / agg_full["envios"] * 100
     bajas = agg_full[(agg_full["tasa"] < 90) & (agg_full["envios"] >= 50)].sort_values("tasa")
     if len(bajas):
-        detalle = ", ".join([f"{r.name_clean} ({r.tasa:.0f}% entrega, {fmt_usd(r.costo)} gastado)"
-                              for r in bajas.itertuples()])
+        top3 = ", ".join([f"{r.name_clean} ({r.tasa:.0f}%)" for r in bajas.head(3).itertuples()])
+        resto = len(bajas) - 3
+        resumen = top3 + (f", y {resto} más" if resto > 0 else "")
         insights.append(("alrt", "📉 Pushes con tasa de entrega por debajo del 90%",
-                          f"{detalle}. Si el modelo de costeo activo factura por envío/entrega, esto "
-                          f"es dinero pagado por mensajes que no llegaron — revisar calidad de la lista "
-                          f"de contactos o estado de la plantilla en Meta."))
+                          f"{len(bajas)} push(es), empezando por {resumen}. Si el modelo de costeo activo "
+                          f"factura por envío/entrega, esto es dinero pagado por mensajes que no llegaron — "
+                          f"revisar calidad de la lista de contactos o estado de la plantilla en Meta.",
+                          bajas.rename(columns={"name_clean": "Push", "envios": "Enviados",
+                                                 "entregados": "Entregados", "tasa": "Tasa entrega %",
+                                                 "costo": "Costo (USD)"})[["Push", "Enviados", "Entregados",
+                                                                            "Tasa entrega %", "Costo (USD)"]]))
 
     # 3) Concentración de costo
     top_share = agg_full.nlargest(1, "costo")
@@ -1146,7 +1167,7 @@ with tab5:
                               f"'{top_share['name_clean'].iloc[0]}' representa {share_pct}% del costo "
                               f"estimado total histórico ({fmt_usd(top_share['costo'].iloc[0])}). "
                               f"Cualquier optimización de segmentación o frecuencia en este push tiene "
-                              f"el mayor impacto posible en el gasto total."))
+                              f"el mayor impacto posible en el gasto total.", None))
 
     # 4) Respuesta baja en pushes de alto volumen (costo sin interacción)
     resp_full = gr_costo_full.groupby("name_clean", observed=True).apply(
@@ -1154,22 +1175,31 @@ with tab5:
         include_groups=False
     ).reset_index(name="tasa_resp")
     resp_full = resp_full.merge(agg_full[["name_clean", "envios", "costo"]], on="name_clean")
-    bajas_resp = resp_full[(resp_full["tasa_resp"] < 10) & (resp_full["envios"] >= 500)]
+    bajas_resp = resp_full[(resp_full["tasa_resp"] < 10) & (resp_full["envios"] >= 500)].sort_values("costo", ascending=False)
     if len(bajas_resp):
-        detalle = ", ".join([f"{r.name_clean} ({r.tasa_resp:.1f}% respuesta, {fmt_usd(r.costo)})"
-                              for r in bajas_resp.itertuples()])
+        top3 = ", ".join([f"{r.name_clean} ({r.tasa_resp:.1f}%)" for r in bajas_resp.head(3).itertuples()])
+        resto = len(bajas_resp) - 3
+        resumen = top3 + (f", y {resto} más" if resto > 0 else "")
         insights.append(("alrt", "💬 Pushes de alto volumen con baja tasa de respuesta",
-                          f"{detalle}. Son recordatorios informativos (respuesta baja es esperable), "
-                          f"pero si el modelo de costeo activo factura por conversación entregada "
-                          f"(no por respuesta), este es el gasto fijo recurrente más alto — el que más "
-                          f"conviene auditar primero si se busca reducir costo."))
+                          f"{len(bajas_resp)} push(es), empezando por {resumen}. Son recordatorios "
+                          f"informativos (respuesta baja es esperable), pero si el modelo de costeo activo "
+                          f"factura por conversación entregada (no por respuesta), estos son el gasto fijo "
+                          f"recurrente más alto — los que más conviene auditar primero si se busca reducir costo.",
+                          bajas_resp.rename(columns={"name_clean": "Push", "envios": "Enviados",
+                                                      "tasa_resp": "Tasa respuesta %", "costo": "Costo (USD)"})
+                          [["Push", "Enviados", "Tasa respuesta %", "Costo (USD)"]]))
 
     if not insights:
         st.markdown('<div class="good">✅ No se detectaron anomalías relevantes en el período analizado.</div>',
                      unsafe_allow_html=True)
     else:
-        for kind, titulo, texto in insights:
+        for item in insights:
+            kind, titulo, texto = item[0], item[1], item[2]
+            tabla_detalle = item[3] if len(item) > 3 else None
             st.markdown(f'<div class="{kind}"><b>{titulo}</b><br>{texto}</div>', unsafe_allow_html=True)
+            if tabla_detalle is not None:
+                with st.expander(f"Ver el detalle completo ({len(tabla_detalle)} filas)"):
+                    st.dataframe(tabla_detalle, use_container_width=True, hide_index=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown('<span class="sec">Próximos pasos sugeridos</span>', unsafe_allow_html=True)
@@ -1218,20 +1248,6 @@ with tab6:
             "reales necesitamos cruzarla contra los envíos totales (`fact_deployment_daily`), y aun así no "
             "reconstruye el árbol paso a paso — solo el total de respuesta por plantilla."
         )
-
-    st.markdown(
-        '<div class="info">🔎 <b>Por qué el árbol completo (como el de Diosnel) no se puede armar solo con '
-        'las credenciales que tenemos:</b> revisé la documentación oficial del Data Warehouse de Treble '
-        '(las 10 tablas de hechos y 5 de dimensiones, todas). Ninguna trae la navegación nodo-a-nodo dentro '
-        'de un flujo — <code>fact_hsm_responses</code> solo guarda respuestas (no silencios), y no hay una '
-        'tabla tipo "de qué mensaje pasó a cuál". Por el nombre de su base de datos interna que aparece en '
-        'nuestras notas del proyecto, el árbol de Diosnel muy probablemente sale de <b>su propio dbt '
-        '(marts.rpt_treble_envios), no de esta base cruda</b> a la que tenemos acceso — son dos capas '
-        'distintas. Para igualarlo exacto necesitamos una de estas dos cosas: (1) que Diosnel te pase el SQL '
-        'exacto de esa pregunta en Metabase, o (2) acceso de lectura a su base de marts. Mientras tanto, el '
-        'árbol de abajo (con el CSV que exportaste) sigue siendo la fuente más completa y ya está auditada.</div>',
-        unsafe_allow_html=True
-    )
 
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown('<span class="sec">📄 Análisis completo — export de árbol de Treble</span>', unsafe_allow_html=True)
