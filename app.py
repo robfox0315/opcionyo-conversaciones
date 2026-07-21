@@ -357,9 +357,36 @@ def load_catalog():
     return df
 
 
+@st.cache_data(show_spinner="⏳ Cargando árbol de conversación…")
+def load_arbol():
+    path = find_data_file("arbol_conversacion.csv")
+    if not path:
+        return None  # pestaña opcional: si no está el archivo, la pestaña avisa y no rompe el resto
+    try:
+        df = pd.read_csv(path)
+    except Exception:
+        return None
+
+    # Nodo interactivo real: el mismo nodo origen (Poll+Paso+Origen ID) tiene al
+    # menos una arista que SÍ avanza (no es fuga) — así distinguimos una fuga real
+    # (había opción de responder y no lo hicieron) de un push informativo de una
+    # sola vía (donde "no avanzó" es 100% esperado porque no se pedía respuesta).
+    grp_key = ["Poll ID", "Paso Origen", "Origen ID"]
+    total_nodo = df.groupby(grp_key)["N Clientes"].transform("sum")
+    alt_clientes = df[~df["Es Fuga"]].groupby(grp_key)["N Clientes"].sum()
+    df = df.set_index(grp_key)
+    df["alt_clientes"] = alt_clientes
+    df = df.reset_index()
+    df["alt_clientes"] = df["alt_clientes"].fillna(0)
+    df["alt_share"] = df["alt_clientes"] / total_nodo.values
+    df["fuga_real"] = df["Es Fuga"] & (df["alt_share"] >= 0.05)
+    return df
+
+
 gr = load_general_report()
 sr = load_sessions()
 cat = load_catalog()
+arbol = load_arbol()
 
 # ══════════════════════════════════════════════════════════════
 #  CONFIGURACIÓN DEL MODELO DE COSTO (panel plegable, sin sidebar)
@@ -450,10 +477,10 @@ def filtro_fechas(df, col_fecha, key_prefix, label="Rango de fechas"):
 # ══════════════════════════════════════════════════════════════
 #  TABS
 # ══════════════════════════════════════════════════════════════
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "📊 Resumen Ejecutivo", "📤 Pushes Automáticos & Costo",
     "💬 Conversaciones", "🗂️ Catálogo de Plantillas",
-    "🎯 Insights & Recomendaciones"
+    "🎯 Insights & Recomendaciones", "🌳 Árbol de Conversación"
 ])
 
 # ────────────────────────────────────────────────────────────────
@@ -1005,8 +1032,8 @@ with tab5:
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown('<span class="sec">Próximos pasos sugeridos</span>', unsafe_allow_html=True)
     st.markdown("""
-- **Confirmar la tarifa real de costo por conversación** con Treble/Meta y reemplazar el valor
-  editable de la barra lateral — hoy el costo mostrado es un estimado, no una cifra de facturación.
+- **Confirmar la tarifa real de costo por conversación** con Treble/Meta si llegara a cambiar —
+  hoy ya usamos la tarifa real auditada, no un supuesto, pero conviene re-auditar periódicamente.
 - **Confirmar el modelo de costeo real** (¿se cobra por conversación entregada o solo cuando el
   cliente responde?) — cambia significativamente qué pushes son realmente los más caros.
 - **Revisar con Iva** los pushes con baja tasa de entrega, ya que representan gasto sin llegar al
@@ -1014,6 +1041,118 @@ with tab5:
 - **Alertas automáticas**: configurar un umbral de costo mensual o de tasa de entrega que dispare
   notificación sin depender de revisión manual del dashboard.
 """)
+
+
+# ────────────────────────────────────────────────────────────────
+# TAB 6 · ÁRBOL DE CONVERSACIÓN (dónde se rompe / dónde queda en silencio)
+# ────────────────────────────────────────────────────────────────
+with tab6:
+    st.markdown('<span class="sec">Dónde se rompe la conversación (árbol de flujo, export nativo de Treble)</span>',
+                unsafe_allow_html=True)
+
+    if arbol is None:
+        st.markdown(
+            '<div class="alrt">⚠️ No se encontró <code>data/arbol_conversacion.csv</code>. '
+            'Esta pestaña necesita el export de árbol de conversación de Treble (reporte '
+            '"rpt_treble_arbol...csv") para funcionar. Súbelo a la carpeta <code>data/</code> del '
+            'repo con ese nombre exacto.</div>', unsafe_allow_html=True
+        )
+    else:
+        st.markdown(
+            '<div class="info">💡 <b>Qué es "fuga real":</b> Treble marca como "No avanzó" a '
+            'cualquiera que no siga una plantilla, incluso en avisos de una sola vía donde nadie '
+            'espera respuesta (eso es normal, no es un problema). Este dashboard filtra eso: solo '
+            'cuenta como <b>fuga real</b> cuando el cliente SÍ tenía una opción real de responder o '
+            'elegir algo, y aun así se quedó en silencio. Eso es lo que realmente vale la pena '
+            'revisar.</div>', unsafe_allow_html=True
+        )
+
+        fuga_real_df = arbol[arbol["fuga_real"]]
+        total_fuga_real = int(fuga_real_df["N Clientes"].sum())
+        n_puntos = fuga_real_df["Origen ID"].nunique()
+        top_plantilla = (fuga_real_df.groupby("Plantilla")["N Clientes"].sum()
+                          .sort_values(ascending=False))
+
+        c1, c2, c3 = st.columns(3)
+        c1.markdown(kpi("Clientes en fuga real", f"{total_fuga_real:,}", "con alternativa real de responder", "warn"),
+                    unsafe_allow_html=True)
+        c2.markdown(kpi("Puntos de quiebre distintos", f"{n_puntos}", "en todos los flujos", "amber"),
+                    unsafe_allow_html=True)
+        if len(top_plantilla):
+            c3.markdown(kpi("Plantilla con más fuga", f"{int(top_plantilla.iloc[0]):,}",
+                            top_plantilla.index[0][:30], "dark"), unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown('<span class="sec red">Ranking de plantillas por volumen de fuga real</span>', unsafe_allow_html=True)
+        rank = fuga_real_df.groupby("Plantilla").agg(
+            fuga_real=("N Clientes", "sum"), puntos_de_quiebre=("Origen ID", "nunique")
+        ).reset_index().sort_values("fuga_real", ascending=False)
+        fig = px.bar(rank.head(15).sort_values("fuga_real"), x="fuga_real", y="Plantilla", orientation="h",
+                     color_discrete_sequence=[OY_WARN], text="fuga_real")
+        fig.update_layout(xaxis_title="Clientes en fuga real", yaxis_title="")
+        st.plotly_chart(sfig(fig, 420), use_container_width=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown('<span class="sec purple">Inspeccionar un flujo específico</span>', unsafe_allow_html=True)
+        plantilla_pick = st.selectbox("Plantilla", rank["Plantilla"].tolist(), key="t6_plantilla")
+
+        sub = arbol[arbol["Plantilla"] == plantilla_pick].copy()
+        # Nos quedamos con un Poll ID representativo (el de mayor volumen) para que el
+        # diagrama no mezcle instancias distintas del mismo flujo
+        poll_top = sub.groupby("Poll ID")["N Clientes"].sum().idxmax()
+        sub = sub[sub["Poll ID"] == poll_top]
+
+        col1, col2 = st.columns([1.3, 1])
+        with col1:
+            st.markdown('<span class="sec blue">Mapa del flujo (Sankey) — grosor = volumen de clientes</span>',
+                        unsafe_allow_html=True)
+            nodos = pd.unique(sub[["Nodo Origen Key", "Nodo Destino Key"]].values.ravel())
+            nodo_idx = {n: i for i, n in enumerate(nodos)}
+            colores_nodo = [OY_WARN if "No avanzó" in n or "✖" in n else OY_TEAL for n in nodos]
+            link_colores = ["rgba(229,72,77,.55)" if f else "rgba(22,182,194,.35)" for f in sub["Es Fuga"]]
+            sankey = go.Figure(go.Sankey(
+                node=dict(label=[n[:45] for n in nodos], pad=14, thickness=16, color=colores_nodo,
+                          line=dict(color="rgba(0,0,0,.15)", width=.5)),
+                link=dict(source=sub["Nodo Origen Key"].map(nodo_idx),
+                          target=sub["Nodo Destino Key"].map(nodo_idx),
+                          value=sub["N Clientes"], color=link_colores)
+            ))
+            st.plotly_chart(sfig(sankey, 480), use_container_width=True)
+            st.caption("🔴 Rojo = terminan en 'No avanzó' (silencio) · 🔵 Teal = siguen conversando. "
+                       "El grosor del enlace es proporcional a cuántos clientes tomaron ese camino.")
+        with col2:
+            st.markdown('<span class="sec amb">Puntos de quiebre de este flujo</span>', unsafe_allow_html=True)
+            puntos = sub[sub["fuga_real"]][["Paso Origen", "Nodo Origen", "N Clientes", "Pct Del Nodo"]]
+            puntos = puntos.sort_values("N Clientes", ascending=False)
+            if len(puntos):
+                st.dataframe(
+                    puntos.rename(columns={"Paso Origen": "Paso", "Nodo Origen": "Mensaje",
+                                            "N Clientes": "Clientes en silencio", "Pct Del Nodo": "% del nodo"}),
+                    use_container_width=True, hide_index=True, height=420
+                )
+            else:
+                st.info("Este flujo no tiene puntos de fuga real detectados (es informativo de una sola vía, "
+                        "o casi todos los que llegan responden).")
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown('<span class="sec">🔎 Hallazgo principal de esta auditoría</span>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="crit">⚠️ <b>"esp_espera" (especialista esperando)</b> es el quiebre más grande y '
+            'concentrado: el mensaje <i>"tu especialista te espera por la plataforma. ¿Tienes alguna '
+            'dificultad que te impide ingresar?"</i> se queda sin respuesta en el <b>82–86% de los casos</b> '
+            '(4,114 clientes), a pesar de que sí hay gente que responde cuando se le pregunta. Cada uno de '
+            'esos casos es una sesión donde el especialista esperó y el sistema nunca supo si hubo un '
+            'problema real o el cliente simplemente no vio el mensaje — vale la pena revisar el copy, '
+            'agregar un botón de respuesta rápida, o acortar el tiempo antes de escalar a un agente '
+            'humano.</div>', unsafe_allow_html=True
+        )
+        st.markdown(
+            '<div class="alrt">El flujo principal del bot de ATC ("(sin nombre)") tiene fuga real repartida '
+            'en 117 puntos distintos del árbol (3,153 clientes en total) — no hay un solo quiebre gigante, '
+            'sino fricción distribuida en varios pasos del menú. El punto más grande es el mensaje de '
+            'bienvenida inicial: entre 14% y 28% de quienes lo reciben no eligen ninguna opción del '
+            'menú.</div>', unsafe_allow_html=True
+        )
 
 st.markdown("<br><hr>", unsafe_allow_html=True)
 st.caption("Dashboard Conversaciones y Pushes Automáticos · Opción Yo — generado con NOVA. "
