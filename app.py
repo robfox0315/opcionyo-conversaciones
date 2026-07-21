@@ -1127,70 +1127,68 @@ with tab6:
         st.plotly_chart(sfig(fig, 460), use_container_width=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown('<span class="sec purple">Inspeccionar un flujo específico</span>', unsafe_allow_html=True)
-        plantilla_pick = st.selectbox("Plantilla", rank["Plantilla"].tolist(), key="t6_plantilla")
+        st.markdown('<span class="sec purple">🌳 Árbol de decisiones — dónde se caen los clientes</span>',
+                    unsafe_allow_html=True)
+        fc1, fc2 = st.columns([2, 1])
+        with fc1:
+            plantilla_pick = st.selectbox("Flujo", rank["Plantilla"].tolist(), key="t6_plantilla")
+        with fc2:
+            min_clientes = st.number_input("Mínimo de clientes por rama", min_value=0, value=50, step=10,
+                                            key="t6_min_clientes",
+                                            help="Ramas con menos clientes que este número no se muestran, "
+                                                 "para que el árbol se pueda leer.")
 
-        sub = arbol[arbol["Plantilla"] == plantilla_pick].copy()
+        sub_full = arbol[arbol["Plantilla"] == plantilla_pick].copy()
         # Nos quedamos con un Poll ID representativo (el de mayor volumen) para que el
         # diagrama no mezcle instancias distintas del mismo flujo
-        poll_top = sub.groupby("Poll ID")["N Clientes"].sum().idxmax()
-        sub = sub[sub["Poll ID"] == poll_top].copy()
+        poll_top = sub_full.groupby("Poll ID")["N Clientes"].sum().idxmax()
+        sub_full = sub_full[sub_full["Poll ID"] == poll_top].copy()
+        total_flujo = sub_full["N Clientes"].sum()
 
-        # Para que el Sankey se lea, agrupamos las ramas muy chicas (<3% del total del flujo)
-        # en un solo nodo "Otros caminos (n)" — si no, con 15+ ramas finitas no se entiende nada.
-        total_flujo = sub["N Clientes"].sum()
-        sub["es_chica"] = sub["N Clientes"] / total_flujo < 0.03
-        n_chicas = int(sub["es_chica"].sum())
-        if n_chicas >= 2:
-            chicas = sub[sub["es_chica"]]
-            resto = sub[~sub["es_chica"]].copy()
-            agregada = pd.DataFrame([{
-                "Nodo Origen Key": "Varios pasos del flujo",
-                "Nodo Destino Key": f"↳ Otros {n_chicas} caminos (agrupados)",
-                "N Clientes": chicas["N Clientes"].sum(),
-                "Es Fuga": False,
-                "Pct Del Nodo": None,
-            }])
-            sub = pd.concat([resto, agregada], ignore_index=True)
+        sub = sub_full[sub_full["N Clientes"] >= min_clientes].copy()
+        n_ocultas = len(sub_full) - len(sub)
 
         col1, col2 = st.columns([1.4, 1])
         with col1:
-            st.markdown('<span class="sec blue">Mapa del flujo (Sankey)</span>', unsafe_allow_html=True)
+            st.markdown('<span class="sec blue">Mapa del flujo</span>', unsafe_allow_html=True)
             st.caption(
                 "Se lee de izquierda a derecha: cada barra es un mensaje, cada franja es cuánta gente "
                 "pasó de un mensaje al siguiente. 🔴 rojo = terminó en silencio · 🔵 teal = siguió "
-                "conversando. Ramas muy chicas (menos del 3% del flujo) se agrupan en 'Otros caminos' "
-                "para que se pueda leer."
+                "conversando." + (f" {n_ocultas} rama(s) con menos de {min_clientes} clientes están "
+                                   "ocultas — bajá el mínimo de arriba si querés verlas." if n_ocultas else "")
             )
 
-            def _etiqueta_nodo(n):
-                n = str(n)
-                # quitamos el prefijo técnico "P1 · " y cortamos a un largo legible
-                if " · " in n:
-                    n = n.split(" · ", 1)[1]
-                return (n[:38] + "…") if len(n) > 38 else n
+            if sub.empty:
+                st.info("No quedan ramas con ese mínimo de clientes. Bajá el número de 'Mínimo de clientes "
+                        "por rama' para ver el árbol.")
+            else:
+                def _etiqueta_nodo(n):
+                    n = str(n)
+                    # quitamos el prefijo técnico "P1 · " y cortamos a un largo legible
+                    if " · " in n:
+                        n = n.split(" · ", 1)[1]
+                    return (n[:38] + "…") if len(n) > 38 else n
 
-            nodos = pd.unique(sub[["Nodo Origen Key", "Nodo Destino Key"]].values.ravel())
-            nodo_idx = {n: i for i, n in enumerate(nodos)}
-            colores_nodo = [OY_WARN if ("No avanzó" in n or "✖" in n) else
-                            (OY_AMBER if "Otros" in n else OY_TEAL) for n in nodos]
-            link_colores = ["rgba(229,72,77,.55)" if f else "rgba(22,182,194,.35)" for f in sub["Es Fuga"]]
-            pct_total = (sub["N Clientes"] / total_flujo * 100).round(1)
-            sankey = go.Figure(go.Sankey(
-                arrangement="snap",
-                node=dict(label=[_etiqueta_nodo(n) for n in nodos], pad=18, thickness=18,
-                          color=colores_nodo, line=dict(color="rgba(0,0,0,.15)", width=.5),
-                          hovertemplate="%{label}<extra></extra>"),
-                link=dict(source=sub["Nodo Origen Key"].map(nodo_idx),
-                          target=sub["Nodo Destino Key"].map(nodo_idx),
-                          value=sub["N Clientes"], color=link_colores,
-                          customdata=pct_total,
-                          hovertemplate="%{value:,} clientes (%{customdata}% del flujo)<extra></extra>")
-            ))
-            st.plotly_chart(sfig(sankey, 560), use_container_width=True)
+                nodos = pd.unique(sub[["Nodo Origen Key", "Nodo Destino Key"]].values.ravel())
+                nodo_idx = {n: i for i, n in enumerate(nodos)}
+                colores_nodo = [OY_WARN if ("No avanzó" in n or "✖" in n) else OY_TEAL for n in nodos]
+                link_colores = ["rgba(229,72,77,.55)" if f else "rgba(22,182,194,.35)" for f in sub["Es Fuga"]]
+                pct_total = (sub["N Clientes"] / total_flujo * 100).round(1)
+                sankey = go.Figure(go.Sankey(
+                    arrangement="snap",
+                    node=dict(label=[_etiqueta_nodo(n) for n in nodos], pad=18, thickness=18,
+                              color=colores_nodo, line=dict(color="rgba(0,0,0,.15)", width=.5),
+                              hovertemplate="%{label}<extra></extra>"),
+                    link=dict(source=sub["Nodo Origen Key"].map(nodo_idx),
+                              target=sub["Nodo Destino Key"].map(nodo_idx),
+                              value=sub["N Clientes"], color=link_colores,
+                              customdata=pct_total,
+                              hovertemplate="%{value:,} clientes (%{customdata}% del flujo)<extra></extra>")
+                ))
+                st.plotly_chart(sfig(sankey, 560), use_container_width=True)
         with col2:
             st.markdown('<span class="sec amb">Puntos de quiebre de este flujo</span>', unsafe_allow_html=True)
-            puntos = arbol[(arbol["Plantilla"] == plantilla_pick) & (arbol["Poll ID"] == poll_top)]
+            puntos = sub_full[sub_full["N Clientes"] >= min_clientes]
             puntos = puntos[puntos["fuga_real"]][["Paso Origen", "Nodo Origen", "N Clientes", "Pct Del Nodo"]]
             puntos = puntos.sort_values("N Clientes", ascending=False)
             if len(puntos):
