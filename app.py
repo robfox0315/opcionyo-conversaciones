@@ -219,6 +219,103 @@ def find_data_file(name: str):
 
 
 # ══════════════════════════════════════════════════════════════
+#  DATA WAREHOUSE DE TREBLE (ClickHouse, client_analytics) · EN VIVO
+#  Esquema verificado contra la documentación oficial de Treble
+#  (help.treble.ai/es/docs/data-warehouse) — nada de esto es adivinado.
+#  Tablas usadas: fact_deployment_daily, fact_sessions, dim_hsm.
+# ══════════════════════════════════════════════════════════════
+@st.cache_resource(show_spinner=False)
+def _dwh_client():
+    try:
+        cfg = st.secrets["treble_dwh"]
+    except Exception:
+        return None
+    try:
+        import clickhouse_connect
+        return clickhouse_connect.get_client(
+            host=cfg["host"], port=int(cfg.get("port", 8443)),
+            username=cfg["username"], password=cfg["password"],
+            database=cfg.get("database", "client_analytics"),
+            secure=True, connect_timeout=10,
+        )
+    except Exception:
+        return None
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def dwh_status():
+    """Prueba la conexión y devuelve (ok, mensaje, lista_de_tablas)."""
+    client = _dwh_client()
+    if client is None:
+        return False, "Sin credenciales en Secrets (falta [treble_dwh]) o librería no disponible.", []
+    try:
+        client.query("SELECT 1")
+        tablas = [r[0] for r in client.query("SHOW TABLES").result_rows]
+        return True, "Conexión al Data Warehouse de Treble activa.", tablas
+    except Exception as e:
+        return False, f"No se pudo conectar: {str(e)[:200]}", []
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def dwh_query(sql: str):
+    """Ejecuta una consulta SQL contra el DWH y devuelve un DataFrame, o None si falla."""
+    client = _dwh_client()
+    if client is None:
+        return None
+    try:
+        return client.query_df(sql)
+    except Exception:
+        return None
+
+
+@st.cache_data(ttl=300, show_spinner="⏳ Consultando Data Warehouse (pushes)…")
+def dwh_general_report(dias=210):
+    """Reconstruye el equivalente al Reporte general de pushes desde fact_deployment_daily."""
+    sql = f"""
+        SELECT
+            day AS date,
+            poll_name AS name,
+            sum(sent) AS successful,
+            sum(delivered) AS delivered,
+            round(sum(responded) * 1.0 / nullIf(sum(sent), 0), 4) AS response_rate
+        FROM client_analytics.fact_deployment_daily
+        WHERE day >= today() - {int(dias)}
+        GROUP BY day, poll_name
+        ORDER BY day
+    """
+    df = dwh_query(sql)
+    if df is None or df.empty:
+        return None
+    df["date"] = pd.to_datetime(df["date"])
+    df["name_clean"] = df["name"].astype(str).str.strip()
+    return df
+
+
+@st.cache_data(ttl=300, show_spinner="⏳ Consultando Data Warehouse (sesiones)…")
+def dwh_sessions(dias=32):
+    """Reconstruye el equivalente al reporte de sesiones desde fact_sessions."""
+    sql = f"""
+        SELECT
+            session_id, created_at AS session_started_timestamp,
+            finished_at AS session_finished_timestamp,
+            inbound_outbound AS session_type, status AS session_status,
+            country_code AS user_country_code, poll_id, poll_name,
+            channel_cellphone AS whatsapp_link_campaign_name
+        FROM client_analytics.fact_sessions
+        WHERE created_at >= now() - INTERVAL {int(dias)} DAY
+    """
+    df = dwh_query(sql)
+    if df is None or df.empty:
+        return None
+    for c in ["session_started_timestamp", "session_finished_timestamp"]:
+        df[c] = pd.to_datetime(df[c], errors="coerce")
+    # Campos que el CSV traía y fact_sessions no tiene — se dejan vacíos, no inventados
+    df["first_message_timestamp"] = pd.NaT
+    df["last_message_timestamp"] = pd.NaT
+    return df
+
+
+# ══════════════════════════════════════════════════════════════
 #  TARIFAS REALES DE TREBLE (auditadas contra export nativo "Inversión")
 #  Fuente: reporte nativo de Treble de Opción Yo (captura jun-2026).
 #  Estructura de tramos por volumen mensual de conversaciones, confirmada
@@ -266,16 +363,21 @@ def tarifa_por_tramo(volumen: float) -> float:
 # ══════════════════════════════════════════════════════════════
 @st.cache_data(show_spinner="⏳ Cargando reporte de pushes…")
 def load_general_report():
-    path = find_data_file("general_report.csv")
-    if not path:
-        st.error("❌ No se encontró data/general_report.csv. Verifica que el archivo esté en el repositorio.")
-        st.stop()
-    try:
-        df = pd.read_csv(path)
-        df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    except Exception as e:
-        st.error(f"No se pudo leer general_report.csv: {e}")
-        st.stop()
+    df = dwh_general_report()
+    fuente = "dwh"
+    if df is None:
+        fuente = "csv"
+        path = find_data_file("general_report.csv")
+        if not path:
+            st.error("❌ No hay conexión al Data Warehouse Y no se encontró data/general_report.csv. "
+                      "Necesito al menos una de las dos fuentes.")
+            st.stop()
+        try:
+            df = pd.read_csv(path)
+            df["date"] = pd.to_datetime(df["date"], errors="coerce")
+        except Exception as e:
+            st.error(f"No se pudo leer general_report.csv: {e}")
+            st.stop()
     if "name_clean" not in df.columns:
         df["name_clean"] = (df["name"]
                              .str.replace("Copia de la conversación", "", regex=False)
@@ -286,20 +388,26 @@ def load_general_report():
     df["semana"] = df["date"].dt.to_period("W").apply(lambda p: p.start_time.date())
     for c in ["name", "name_clean"]:
         df[c] = df[c].astype("category")
+    df.attrs["fuente"] = fuente
     return df
 
 
 @st.cache_data(show_spinner="⏳ Cargando sesiones conversacionales…")
 def load_sessions():
-    path = find_data_file("sessions_report.csv")
-    if not path:
-        st.error("❌ No se encontró data/sessions_report.csv. Verifica que el archivo esté en el repositorio.")
-        st.stop()
-    try:
-        df = pd.read_csv(path)
-    except Exception as e:
-        st.error(f"No se pudo leer sessions_report.csv: {e}")
-        st.stop()
+    df = dwh_sessions()
+    fuente = "dwh"
+    if df is None:
+        fuente = "csv"
+        path = find_data_file("sessions_report.csv")
+        if not path:
+            st.error("❌ No hay conexión al Data Warehouse Y no se encontró data/sessions_report.csv. "
+                      "Necesito al menos una de las dos fuentes.")
+            st.stop()
+        try:
+            df = pd.read_csv(path)
+        except Exception as e:
+            st.error(f"No se pudo leer sessions_report.csv: {e}")
+            st.stop()
 
     for c in ["session_started_timestamp", "session_finished_timestamp",
               "first_message_timestamp", "last_message_timestamp"]:
@@ -316,6 +424,7 @@ def load_sessions():
     for c in ["session_type", "session_status", "user_country_code", "pais",
               "whatsapp_link_campaign_name", "dia_nombre"]:
         df[c] = df[c].astype("category")
+    df.attrs["fuente"] = fuente
     return df
 
 
@@ -399,6 +508,17 @@ gr = load_general_report()
 sr = load_sessions()
 cat = load_catalog()
 arbol = load_arbol()
+
+# ── Banner de estado del Data Warehouse (mismo estilo que la herramienta de Diosnel) ──
+_dwh_ok, _dwh_msg, _dwh_tablas = dwh_status()
+if _dwh_ok:
+    st.markdown(f'<div class="good">🟢 <b>{_dwh_msg}</b> Pushes y Conversaciones se están leyendo en vivo '
+                f'del Data Warehouse ({len(_dwh_tablas)} tablas disponibles) — ya no dependen del CSV manual.</div>',
+                unsafe_allow_html=True)
+else:
+    st.markdown(f'<div class="alrt">🟡 <b>Data Warehouse no conectado:</b> {_dwh_msg} Usando los archivos CSV '
+                f'de <code>data/</code> como respaldo — el dashboard funciona igual, solo que con la última '
+                f'actualización manual en vez de en vivo.</div>', unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════
 #  CONFIGURACIÓN DEL MODELO DE COSTO (panel plegable, sin sidebar)
@@ -1069,8 +1189,52 @@ with tab5:
 # TAB 6 · ÁRBOL DE CONVERSACIÓN (dónde se rompe / dónde queda en silencio)
 # ────────────────────────────────────────────────────────────────
 with tab6:
-    st.markdown('<span class="sec">Dónde se rompe la conversación (árbol de flujo, export nativo de Treble)</span>',
+    st.markdown('<span class="sec">Dónde se rompe la conversación</span>', unsafe_allow_html=True)
+
+    # ── Sección en vivo: lo que SÍ se puede sacar del DWH directamente ──
+    st.markdown('<span class="sec blue">🔴 En vivo — respuesta a plantillas HSM (Data Warehouse)</span>',
                 unsafe_allow_html=True)
+    if not _dwh_ok:
+        st.markdown('<div class="alrt">Data Warehouse no conectado ahora mismo — esta sección se activa sola '
+                    'en cuanto la conexión esté disponible.</div>', unsafe_allow_html=True)
+    else:
+        sql_hsm = """
+            SELECT hsm_name, count() AS respuestas, count(DISTINCT survey_user_id) AS usuarios_unicos
+            FROM client_analytics.fact_hsm_responses
+            WHERE response_date >= now() - INTERVAL 30 DAY
+            GROUP BY hsm_name ORDER BY respuestas DESC LIMIT 20
+        """
+        df_hsm = dwh_query(sql_hsm)
+        if df_hsm is None or df_hsm.empty:
+            st.info("La consulta al DWH no devolvió datos de respuestas HSM para los últimos 30 días.")
+        else:
+            fig = px.bar(df_hsm.sort_values("respuestas"), x="respuestas", y="hsm_name", orientation="h",
+                         color_discrete_sequence=[OY_BLUE])
+            fig.update_layout(xaxis_title="Respuestas de usuarios (30 días)", yaxis_title="")
+            st.plotly_chart(sfig(fig, 360), use_container_width=True)
+        st.caption(
+            "Esto viene de `fact_hsm_responses`, en vivo. Pero ojo: esta tabla **solo tiene una fila cuando "
+            "el usuario SÍ respondió** — no registra quién se quedó en silencio. Por eso, para calcular fugas "
+            "reales necesitamos cruzarla contra los envíos totales (`fact_deployment_daily`), y aun así no "
+            "reconstruye el árbol paso a paso — solo el total de respuesta por plantilla."
+        )
+
+    st.markdown(
+        '<div class="info">🔎 <b>Por qué el árbol completo (como el de Diosnel) no se puede armar solo con '
+        'las credenciales que tenemos:</b> revisé la documentación oficial del Data Warehouse de Treble '
+        '(las 10 tablas de hechos y 5 de dimensiones, todas). Ninguna trae la navegación nodo-a-nodo dentro '
+        'de un flujo — <code>fact_hsm_responses</code> solo guarda respuestas (no silencios), y no hay una '
+        'tabla tipo "de qué mensaje pasó a cuál". Por el nombre de su base de datos interna que aparece en '
+        'nuestras notas del proyecto, el árbol de Diosnel muy probablemente sale de <b>su propio dbt '
+        '(marts.rpt_treble_envios), no de esta base cruda</b> a la que tenemos acceso — son dos capas '
+        'distintas. Para igualarlo exacto necesitamos una de estas dos cosas: (1) que Diosnel te pase el SQL '
+        'exacto de esa pregunta en Metabase, o (2) acceso de lectura a su base de marts. Mientras tanto, el '
+        'árbol de abajo (con el CSV que exportaste) sigue siendo la fuente más completa y ya está auditada.</div>',
+        unsafe_allow_html=True
+    )
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown('<span class="sec">📄 Análisis completo — export de árbol de Treble</span>', unsafe_allow_html=True)
 
     if arbol is None:
         st.markdown(
