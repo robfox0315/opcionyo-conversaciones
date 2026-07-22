@@ -1075,6 +1075,62 @@ with tab2:
     )
     st.plotly_chart(sfig(fig, 380), use_container_width=True)
 
+    # ── Verificador de plantillas específicas contra el DWH ──
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown('<span class="sec red">🔬 Verificar si una plantilla se envió de verdad (Data Warehouse)</span>',
+                unsafe_allow_html=True)
+    st.caption(
+        "Para cuando una plantilla nueva no aparece en la tabla de arriba y necesitas saber si es "
+        "porque nunca se envió, o porque el nombre no coincide. Pega uno o más nombres (uno por "
+        "línea) y consulto directo contra `fact_deployment_daily` — sin pasar por el catálogo ni "
+        "por ningún filtro del dashboard."
+    )
+    if not _dwh_ok:
+        st.markdown('<div class="alrt">Data Warehouse no conectado ahora mismo — esta verificación no está '
+                    'disponible sin conexión.</div>', unsafe_allow_html=True)
+    else:
+        nombres_verificar = st.text_area(
+            "Nombres a verificar (uno por línea)", height=120, key="t2_verificar_nombres",
+            placeholder="Agendamiento exitoso\nPuntuación 1\nSDD sin agendar"
+        )
+        if st.button("Verificar contra el DWH", key="t2_verificar_btn"):
+            lineas = [l.strip() for l in nombres_verificar.split("\n") if l.strip()]
+            if not lineas:
+                st.warning("Pegá al menos un nombre para verificar.")
+            else:
+                resultados = []
+                for nombre in lineas:
+                    nombre_esc = nombre.replace("'", "''")
+                    sql = f"""
+                        SELECT poll_name, sum(sent) AS enviados, sum(delivered) AS entregados,
+                               max(day) AS ultimo_envio, min(day) AS primer_envio
+                        FROM client_analytics.fact_deployment_daily
+                        WHERE positionCaseInsensitive(poll_name, '{nombre_esc}') > 0
+                        GROUP BY poll_name ORDER BY enviados DESC LIMIT 5
+                    """
+                    r = dwh_query(sql)
+                    if r is None or r.empty:
+                        resultados.append({"Buscado": nombre, "poll_name real en DWH": "— no encontrado —",
+                                            "Enviados": 0, "Entregados": 0, "Primer envío": "—", "Último envío": "—"})
+                    else:
+                        for _, row in r.iterrows():
+                            resultados.append({
+                                "Buscado": nombre, "poll_name real en DWH": row["poll_name"],
+                                "Enviados": int(row["enviados"]), "Entregados": int(row["entregados"]),
+                                "Primer envío": str(row["primer_envio"]), "Último envío": str(row["ultimo_envio"]),
+                            })
+                res_df = pd.DataFrame(resultados)
+                st.dataframe(res_df, use_container_width=True, hide_index=True)
+                no_encontrados = res_df[res_df["poll_name real en DWH"] == "— no encontrado —"]
+                if len(no_encontrados):
+                    st.markdown(
+                        f'<div class="crit">🚨 {len(no_encontrados)} nombre(s) sin ningún registro real en '
+                        f'el DWH: {", ".join(no_encontrados["Buscado"])}. Esto confirma que nunca se '
+                        f'enviaron — no es un problema del dashboard, hay que revisar en Treble si la '
+                        f'plantilla está realmente activada y disparándose.</div>', unsafe_allow_html=True
+                    )
+                boton_descarga(res_df, "verificacion_plantillas_dwh.csv", "t2_dl_verificar")
+
 
 # ────────────────────────────────────────────────────────────────
 # TAB 3 · CONVERSACIONES
