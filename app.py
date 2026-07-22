@@ -839,6 +839,12 @@ with tab2:
                                          help="Campañas que no están en el catálogo de plantillas ATC — "
                                               "normalmente son de la línea de Ventas/Marketing, fuera del "
                                               "alcance de este dashboard.")
+    incluir_sin_envios = st.checkbox(
+        "➕ Incluir también plantillas activas del catálogo que no tuvieron envíos en este período",
+        value=False, key="t2_incluir_sin_envios",
+        help="Apagado por defecto para que la tabla muestre solo actividad real. Actívalo si querés "
+             "ver el catálogo completo de plantillas activas, incluidas las que no enviaron nada."
+    )
 
     if isinstance(rango2, tuple) and len(rango2) == 2:
         r2_ini, r2_fin = rango2
@@ -895,26 +901,26 @@ with tab2:
     inactivos_con_envio = int((agg["activo"] == False).sum())
     sin_match_n = int((agg["estado_catalogo"] == "Sin match").sum())
 
-    # FIX: hasta acá 'agg' solo trae plantillas que SÍ tuvieron envíos en el período elegido.
-    # Si una plantilla está marcada Activa en el catálogo pero no envió nada en ese rango de
-    # fechas, tiene que seguir apareciendo en 0 — si no, parece que "falta" o que el filtro de
-    # fecha está roto, cuando en realidad simplemente no hubo envíos esos días.
-    _nombres_en_tabla = [_norm_txt(n) for n in agg["name_clean"]]
-    def _ya_esta(nombre_catalogo):
-        nn = _norm_txt(nombre_catalogo)
-        return any(nn in en or en in nn for en in _nombres_en_tabla)
+    # Si el usuario activó "Incluir también plantillas activas sin envíos", agregamos esas filas
+    # en 0 — por defecto queda APAGADO para que la vista principal muestre solo actividad real
+    # (una tabla con 80+ filas en cero se ve mal en una presentación en vivo).
+    if incluir_sin_envios:
+        _nombres_en_tabla = [_norm_txt(n) for n in agg["name_clean"]]
+        def _ya_esta(nombre_catalogo):
+            nn = _norm_txt(nombre_catalogo)
+            return any(nn in en or en in nn for en in _nombres_en_tabla)
 
-    cat_activas_faltantes = cat[cat["activo"] & ~cat["conversacion"].apply(_ya_esta)]
-    if len(cat_activas_faltantes):
-        filas_extra = pd.DataFrame({
-            "name_clean": cat_activas_faltantes["conversacion"].values,
-            "envios": 0, "entregados": 0, "conversaciones_facturables": 0, "costo_estimado": 0.0,
-            "n_batches": 0, "tasa_entrega_%": 0.0, "tasa_respuesta_%": 0.0,
-            "equipo": cat_activas_faltantes["equipo"].values,
-            "estado_catalogo": cat_activas_faltantes["estado"].values,
-            "activo": True, "Activo": "✅ Sí",
-        })
-        agg = pd.concat([agg, filas_extra], ignore_index=True)
+        cat_activas_faltantes = cat[cat["activo"] & ~cat["conversacion"].apply(_ya_esta)]
+        if len(cat_activas_faltantes):
+            filas_extra = pd.DataFrame({
+                "name_clean": cat_activas_faltantes["conversacion"].values,
+                "envios": 0, "entregados": 0, "conversaciones_facturables": 0, "costo_estimado": 0.0,
+                "n_batches": 0, "tasa_entrega_%": 0.0, "tasa_respuesta_%": 0.0,
+                "equipo": cat_activas_faltantes["equipo"].values,
+                "estado_catalogo": cat_activas_faltantes["estado"].values,
+                "activo": True, "Activo": "✅ Sí",
+            })
+            agg = pd.concat([agg, filas_extra], ignore_index=True)
 
     if ocultar_inactivos:
         agg = agg[agg["activo"] != False]
@@ -935,9 +941,8 @@ with tab2:
 
     _sin_envios_periodo = int((agg["envios"] == 0).sum())
     if _sin_envios_periodo:
-        st.caption(f"ℹ️ {_sin_envios_periodo} plantilla(s) activa(s) del catálogo aparecen en 0 porque no "
-                   f"tuvieron envíos en el rango de fechas elegido arriba — siguen en la lista para que no "
-                   f"parezca que faltan.")
+        st.caption(f"ℹ️ {_sin_envios_periodo} plantilla(s) activa(s) del catálogo agregadas manualmente "
+                   f"(sin envíos en este período) porque activaste esa opción arriba.")
 
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown('<span class="sec blue">Tabla comparativa — costo por push</span>', unsafe_allow_html=True)
