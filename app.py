@@ -327,6 +327,58 @@ def dwh_sessions(dias=32):
     return df
 
 
+@st.cache_data(ttl=300, show_spinner="⏳ Consultando tasa de respuesta real…")
+def dwh_respuesta_push(poll_name: str, dias: int = 180):
+    """Tasa de entrega/respuesta real y granular para un push específico, desde fact_deployment_status
+    (una fila por intento de envío individual — el dato más preciso que existe)."""
+    nombre_esc = poll_name.replace("'", "''")
+    sql = f"""
+        SELECT
+            count() AS enviados,
+            countIf(timestamp_delivered > '2000-01-01') AS entregados,
+            countIf(timestamp_responded > '2000-01-01') AS respondidos
+        FROM client_analytics.fact_deployment_status
+        WHERE poll_name = '{nombre_esc}' AND timestamps_eta >= now() - INTERVAL {int(dias)} DAY
+    """
+    return dwh_query(sql)
+
+
+@st.cache_data(ttl=300, show_spinner="⏳ Consultando qué responden los usuarios…")
+def dwh_respuestas_hsm(poll_name: str, dias: int = 180):
+    """Qué contestan los usuarios (botones/texto) dentro del flujo de un push específico.
+    fact_hsm_responses se filtra por poll_id, así que primero lo buscamos en fact_sessions."""
+    nombre_esc = poll_name.replace("'", "''")
+    sql_ids = f"""
+        SELECT DISTINCT poll_id FROM client_analytics.fact_sessions
+        WHERE poll_name = '{nombre_esc}' AND created_at >= now() - INTERVAL {int(dias)} DAY
+        LIMIT 20
+    """
+    ids_df = dwh_query(sql_ids)
+    if ids_df is None or ids_df.empty:
+        return None
+    ids = ",".join(str(int(i)) for i in ids_df["poll_id"])
+    sql = f"""
+        SELECT hsm_name, answer_text, count() AS respuestas
+        FROM client_analytics.fact_hsm_responses
+        WHERE poll_id IN ({ids}) AND response_date >= now() - INTERVAL {int(dias)} DAY
+        GROUP BY hsm_name, answer_text ORDER BY respuestas DESC LIMIT 30
+    """
+    return dwh_query(sql)
+
+
+@st.cache_data(ttl=300, show_spinner="⏳ Consultando dónde termina la conversación…")
+def dwh_estado_final_push(poll_name: str, dias: int = 180):
+    """En qué estado termina el flujo disparado por este push (HumanHandover, Rating, etc.)."""
+    nombre_esc = poll_name.replace("'", "''")
+    sql = f"""
+        SELECT status, count() AS n
+        FROM client_analytics.fact_sessions
+        WHERE poll_name = '{nombre_esc}' AND created_at >= now() - INTERVAL {int(dias)} DAY
+        GROUP BY status ORDER BY n DESC
+    """
+    return dwh_query(sql)
+
+
 # ══════════════════════════════════════════════════════════════
 #  TARIFAS REALES DE TREBLE (auditadas contra export nativo "Inversión")
 #  Fuente: reporte nativo de Treble de Opción Yo (captura jun-2026).
@@ -653,10 +705,11 @@ def filtro_fechas(df, col_fecha, key_prefix, label="Rango de fechas"):
 # ══════════════════════════════════════════════════════════════
 #  TABS
 # ══════════════════════════════════════════════════════════════
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "📊 Resumen Ejecutivo", "📤 Pushes Automáticos & Costo",
     "💬 Conversaciones", "🗂️ Catálogo de Plantillas",
-    "🎯 Insights & Recomendaciones", "🌳 Árbol de Conversación"
+    "🎯 Insights & Recomendaciones", "🌳 Árbol de Conversación",
+    "🔎 Push → Dónde se pierde la respuesta"
 ])
 
 # ────────────────────────────────────────────────────────────────
@@ -1699,6 +1752,160 @@ with tab6:
                      column_config={"% fuga": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%.1f%%")})
         boton_descarga(resumen_tabla, "resumen_arbol_todas_plantillas.csv", "t6_dl_resumen")
         st.caption(f"{len(resumen_completo)} plantillas totales en el export · {buscar6 and f'{len(resumen_f)} tras el filtro de búsqueda'}")
+
+
+# ────────────────────────────────────────────────────────────────
+# TAB 7 · PUSH → DÓNDE SE PIERDE LA RESPUESTA
+# ────────────────────────────────────────────────────────────────
+with tab7:
+    st.markdown('<span class="sec">🔎 De un push a por qué no responden — todo en un solo lugar</span>',
+                unsafe_allow_html=True)
+    st.markdown(
+        '<div class="info">💡 Para responder "¿Recordatorio Sesión en 28hs tiene 50% de respuesta, pero '
+        'qué pasa adentro de esa conversación, dónde se corta?" — esta pestaña junta 3 fuentes en vivo: '
+        '<b>cuánta gente respondió de verdad</b> (fact_deployment_status), '
+        '<b>qué contestaron</b> (fact_hsm_responses) y '
+        '<b>en qué terminó la conversación</b> (fact_sessions). Si además ese push está en el export del '
+        'árbol de Treble, mostramos el mapa completo paso a paso.</div>', unsafe_allow_html=True
+    )
+
+    if not _dwh_ok:
+        st.markdown('<div class="alrt">Data Warehouse no conectado ahora mismo — esta pestaña necesita '
+                    'conexión en vivo para funcionar.</div>', unsafe_allow_html=True)
+    else:
+        push_opciones = sorted(cat[cat["activo"]]["conversacion"].unique())
+        push_pick = st.selectbox("Elegí un push para analizar", push_opciones, key="t7_push")
+
+        # ── 1) Tasa de respuesta real, granular (fact_deployment_status) ──
+        st.markdown('<span class="sec blue">1️⃣ ¿Cuánta gente respondió de verdad?</span>', unsafe_allow_html=True)
+        resp_df = dwh_respuesta_push(push_pick)
+        if resp_df is None or resp_df.empty or resp_df["enviados"].iloc[0] == 0:
+            st.markdown(
+                f'<div class="alrt">No hay envíos de "{push_pick}" registrados en el Data Warehouse en los '
+                f'últimos 180 días. Si esperabas datos acá, probá primero en la pestaña 📤 Pushes con la '
+                f'herramienta "Verificar si una plantilla se envió de verdad".</div>', unsafe_allow_html=True
+            )
+        else:
+            enviados = int(resp_df["enviados"].iloc[0])
+            entregados = int(resp_df["entregados"].iloc[0])
+            respondidos = int(resp_df["respondidos"].iloc[0])
+            c1, c2, c3, c4 = st.columns(4)
+            c1.markdown(kpi("Enviados", f"{enviados:,}", "últimos 180 días", ""), unsafe_allow_html=True)
+            c2.markdown(kpi("Entregados", f"{entregados:,}", f"{safe_pct(entregados, enviados)}%", "ok"),
+                        unsafe_allow_html=True)
+            c3.markdown(kpi("Respondidos", f"{respondidos:,}", f"{safe_pct(respondidos, entregados)}% de entregados",
+                            "warn" if safe_pct(respondidos, entregados) < 30 else "alt"), unsafe_allow_html=True)
+            c4.markdown(kpi("No respondieron", f"{entregados - respondidos:,}",
+                            f"{safe_pct(entregados - respondidos, entregados)}% de entregados", "dark"),
+                        unsafe_allow_html=True)
+
+            # ── 2) Qué contestan (fact_hsm_responses) ──
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown('<span class="sec amb">2️⃣ ¿Qué contestan los que sí responden?</span>', unsafe_allow_html=True)
+            hsm_df = dwh_respuestas_hsm(push_pick)
+            if hsm_df is None or hsm_df.empty:
+                st.info("Este push no generó respuestas estructuradas (fact_hsm_responses vacío) — puede "
+                        "ser un aviso de una sola vía sin botones, o las respuestas fueron texto libre no "
+                        "clasificado.")
+            else:
+                fig = px.bar(hsm_df.sort_values("respuestas").tail(15), x="respuestas", y="answer_text",
+                             orientation="h", color_discrete_sequence=[OY_AMBER])
+                fig.update_layout(xaxis_title="Respuestas", yaxis_title="")
+                st.plotly_chart(sfig(fig, 380), use_container_width=True)
+                boton_descarga(hsm_df, f"respuestas_{push_pick}.csv", "t7_dl_hsm")
+
+            # ── 3) Dónde termina (fact_sessions status) ──
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown('<span class="sec purple">3️⃣ ¿En qué termina la conversación?</span>', unsafe_allow_html=True)
+            estado_df = dwh_estado_final_push(push_pick)
+            if estado_df is None or estado_df.empty:
+                st.info("No hay datos de estado final para este push en fact_sessions.")
+            else:
+                fig = px.pie(estado_df, names="status", values="n", hole=.5, color_discrete_sequence=COLOR_SEQ)
+                st.plotly_chart(sfig(fig, 340), use_container_width=True)
+                boton_descarga(estado_df, f"estado_final_{push_pick}.csv", "t7_dl_estado")
+                if "HumanHandover" in estado_df["status"].values:
+                    pct_agente = safe_pct(estado_df[estado_df["status"] == "HumanHandover"]["n"].iloc[0],
+                                           estado_df["n"].sum())
+                    st.caption(f"💡 {pct_agente}% de las conversaciones de este push terminan escaladas a "
+                               f"un agente humano.")
+
+        # ── 4) Árbol completo, si este push está en el export de Treble ──
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown('<span class="sec red">4️⃣ Mapa completo paso a paso (si está disponible)</span>',
+                     unsafe_allow_html=True)
+        if arbol is None:
+            st.info("No hay export de árbol de conversación cargado (data/arbol_conversacion.csv).")
+        else:
+            fila_cat = cat[cat["conversacion"] == push_pick]
+            plantilla_hsm = fila_cat.iloc[0]["plantilla"] if len(fila_cat) else None
+            candidatos = [push_pick] + ([plantilla_hsm] if plantilla_hsm and plantilla_hsm != "Sin documentar" else [])
+            arbol_plantillas = arbol["Plantilla"].unique()
+            match_arbol = None
+            for cand in candidatos:
+                cn = _norm_txt(cand)
+                for p in arbol_plantillas:
+                    pn = _norm_txt(p)
+                    if pn in cn or cn in pn:
+                        match_arbol = p
+                        break
+                if match_arbol:
+                    break
+
+            if not match_arbol:
+                st.markdown(
+                    '<div class="alrt">Este push específico no está en el export del árbol de Treble bajo '
+                    'un nombre reconocible — usa las secciones 1-3 de arriba (en vivo) como el mejor detalle '
+                    'disponible, o revisa la pestaña 🌳 Árbol de Conversación por si aparece con otro nombre.</div>',
+                    unsafe_allow_html=True
+                )
+            else:
+                st.success(f"✅ Encontrado en el árbol como: **{match_arbol}** — mostrando el mapa completo.")
+                sub_full7 = arbol[arbol["Plantilla"] == match_arbol].copy()
+                poll_top7 = sub_full7.groupby("Poll ID")["N Clientes"].sum().idxmax()
+                sub_full7 = sub_full7[sub_full7["Poll ID"] == poll_top7].copy()
+                total_flujo7 = sub_full7["N Clientes"].sum()
+                sub7 = sub_full7[sub_full7["N Clientes"] >= 20].copy()
+
+                if not sub7.empty:
+                    nodos7 = list(pd.unique(sub7[["Nodo Origen Key", "Nodo Destino Key"]].values.ravel()))
+
+                    def _paso_de7(n):
+                        n = str(n)
+                        if " · " in n:
+                            return n.split(" · ", 1)[0].strip()
+                        return "FIN"
+
+                    codigo7, texto7, contador7 = {}, {}, {}
+                    for n in nodos7:
+                        paso = _paso_de7(n)
+                        if paso == "FIN":
+                            codigo7[n] = "✖ " + n.replace("✖ No avanzó ", "").strip()
+                            texto7[n] = "Cliente no respondió / no avanzó"
+                        else:
+                            contador7[paso] = contador7.get(paso, 0) + 1
+                            codigo7[n] = f"{paso}-{chr(ord('a') + contador7[paso] - 1)}"
+                            texto7[n] = n.split(" · ", 1)[1] if " · " in n else n
+
+                    idx7 = {n: i for i, n in enumerate(nodos7)}
+                    pasos_u7 = sorted({_paso_de7(n) for n in nodos7 if _paso_de7(n) != "FIN"})
+                    color_p7 = {p: COLOR_SEQ[i % len(COLOR_SEQ)] for i, p in enumerate(pasos_u7)}
+                    colores7 = [OY_WARN if _paso_de7(n) == "FIN" else color_p7[_paso_de7(n)] for n in nodos7]
+                    linkcol7 = ["rgba(229,72,77,.55)" if f else "rgba(120,120,120,.28)" for f in sub7["Es Fuga"]]
+                    sankey7 = go.Figure(go.Sankey(
+                        arrangement="snap",
+                        node=dict(label=[codigo7[n] for n in nodos7], pad=20, thickness=24,
+                                  color=colores7, line=dict(color="rgba(0,0,0,.2)", width=.6)),
+                        link=dict(source=sub7["Nodo Origen Key"].map(idx7), target=sub7["Nodo Destino Key"].map(idx7),
+                                  value=sub7["N Clientes"], color=linkcol7,
+                                  hovertemplate="%{value:,} clientes<extra></extra>")
+                    ))
+                    st.plotly_chart(sfig(sankey7, 500), use_container_width=True)
+                    leyenda7 = pd.DataFrame([{"Código": codigo7[n], "Mensaje completo": texto7[n]} for n in nodos7]).drop_duplicates("Código")
+                    st.dataframe(leyenda7, use_container_width=True, hide_index=True, height=260)
+                    st.caption("👉 Para el detalle completo de puntos de quiebre de este flujo, ve a la "
+                               "pestaña 🌳 Árbol de Conversación y elegí este mismo flujo en el selector.")
+
 
 st.markdown("<br><hr>", unsafe_allow_html=True)
 st.caption("Dashboard Conversaciones y Pushes Automáticos · Opción Yo — generado con NOVA. "
