@@ -883,6 +883,27 @@ with tab2:
     inactivos_con_envio = int((agg["activo"] == False).sum())
     sin_match_n = int((agg["estado_catalogo"] == "Sin match").sum())
 
+    # FIX: hasta acá 'agg' solo trae plantillas que SÍ tuvieron envíos en el período elegido.
+    # Si una plantilla está marcada Activa en el catálogo pero no envió nada en ese rango de
+    # fechas, tiene que seguir apareciendo en 0 — si no, parece que "falta" o que el filtro de
+    # fecha está roto, cuando en realidad simplemente no hubo envíos esos días.
+    _nombres_en_tabla = [_norm_txt(n) for n in agg["name_clean"]]
+    def _ya_esta(nombre_catalogo):
+        nn = _norm_txt(nombre_catalogo)
+        return any(nn in en or en in nn for en in _nombres_en_tabla)
+
+    cat_activas_faltantes = cat[cat["activo"] & ~cat["conversacion"].apply(_ya_esta)]
+    if len(cat_activas_faltantes):
+        filas_extra = pd.DataFrame({
+            "name_clean": cat_activas_faltantes["conversacion"].values,
+            "envios": 0, "entregados": 0, "conversaciones_facturables": 0, "costo_estimado": 0.0,
+            "n_batches": 0, "tasa_entrega_%": 0.0, "tasa_respuesta_%": 0.0,
+            "equipo": cat_activas_faltantes["equipo"].values,
+            "estado_catalogo": cat_activas_faltantes["estado"].values,
+            "activo": True, "Activo": "✅ Sí",
+        })
+        agg = pd.concat([agg, filas_extra], ignore_index=True)
+
     if ocultar_inactivos:
         agg = agg[agg["activo"] != False]
     if ocultar_sin_match:
@@ -899,6 +920,12 @@ with tab2:
     if mas_caro is not None:
         c4.markdown(kpi("Push más costoso", fmt_usd(mas_caro["costo_estimado"]), mas_caro["name_clean"][:30], "amber"),
                     unsafe_allow_html=True)
+
+    _sin_envios_periodo = int((agg["envios"] == 0).sum())
+    if _sin_envios_periodo:
+        st.caption(f"ℹ️ {_sin_envios_periodo} plantilla(s) activa(s) del catálogo aparecen en 0 porque no "
+                   f"tuvieron envíos en el rango de fechas elegido arriba — siguen en la lista para que no "
+                   f"parezca que faltan.")
 
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown('<span class="sec blue">Tabla comparativa — costo por push</span>', unsafe_allow_html=True)
