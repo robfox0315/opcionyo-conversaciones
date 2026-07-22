@@ -274,7 +274,10 @@ def dwh_query(sql: str):
 
 @st.cache_data(ttl=300, show_spinner="⏳ Consultando Data Warehouse (pushes)…")
 def dwh_general_report(dias=210):
-    """Reconstruye el equivalente al Reporte general de pushes desde fact_deployment_daily."""
+    """Reconstruye el equivalente al Reporte general de pushes desde fact_deployment_daily.
+    Excluye filas con poll_name vacío — sin nombre no podemos identificar qué campaña es,
+    y mezclarlas todas bajo un nombre en blanco ensuciaría el reporte. Ver panel de
+    Diagnóstico DWH para saber cuánto volumen queda afuera por este motivo."""
     sql = f"""
         SELECT
             day AS date,
@@ -284,6 +287,7 @@ def dwh_general_report(dias=210):
             round(sum(responded) * 1.0 / nullIf(sum(sent), 0), 4) AS response_rate
         FROM client_analytics.fact_deployment_daily
         WHERE day >= today() - {int(dias)}
+          AND poll_name != '' AND poll_name IS NOT NULL
         GROUP BY day, poll_name
         ORDER BY day
     """
@@ -551,7 +555,9 @@ with st.expander("🔧 Diagnóstico del Data Warehouse (capturar y enviar a NOVA
         st.dataframe(pd.DataFrame({"tabla": _dwh_tablas}), use_container_width=True, hide_index=True, height=200)
 
         st.markdown("---")
-        tablas_clave = ["fact_deployment_daily", "fact_sessions", "fact_hsm_responses", "dim_hsm"]
+        tablas_clave = ["fact_deployment_daily", "fact_sessions", "fact_hsm_responses", "dim_hsm",
+                         "fact_whatsapp_links", "fact_redirections", "fact_conversations",
+                         "fact_deployment_status", "fact_inbound_messages", "dim_teams", "dim_agents"]
         tabla_pick = st.selectbox("Elegí una tabla para inspeccionar", tablas_clave, key="diag_tabla")
 
         col1, col2 = st.columns(2)
@@ -569,6 +575,38 @@ with st.expander("🔧 Diagnóstico del Data Warehouse (capturar y enviar a NOVA
                 st.dataframe(muestra, use_container_width=True, hide_index=True, height=280)
             else:
                 st.warning("La consulta no devolvió filas.")
+
+        st.markdown("---")
+        st.markdown("**⚠️ Verificación: ¿qué tan seguido viene `poll_name` vacío en fact_deployment_daily?**")
+        st.caption("Si sale un % alto de vacíos, no puedo usar poll_name para armar el reporte de Pushes "
+                   "tal como está — necesito otra forma de conseguir el nombre real de la campaña.")
+        chk_sql = """
+            SELECT
+                count() AS filas_totales,
+                countIf(poll_name = '' OR poll_name IS NULL) AS filas_sin_nombre,
+                round(countIf(poll_name = '' OR poll_name IS NULL) * 100.0 / count(), 1) AS pct_sin_nombre,
+                sum(sent) AS sent_total,
+                sumIf(sent, poll_name = '' OR poll_name IS NULL) AS sent_sin_nombre
+            FROM client_analytics.fact_deployment_daily
+        """
+        chk_df = dwh_query(chk_sql)
+        if chk_df is not None and not chk_df.empty:
+            st.dataframe(chk_df, use_container_width=True, hide_index=True)
+        else:
+            st.warning("No se pudo correr la verificación.")
+
+        st.markdown("**Ejemplo de filas CON poll_name (para confirmar el formato del nombre real):**")
+        ejemplo_sql = """
+            SELECT day, poll_id, poll_name, sent, delivered, responded, response_rate_pct
+            FROM client_analytics.fact_deployment_daily
+            WHERE poll_name != '' AND poll_name IS NOT NULL
+            ORDER BY sent DESC LIMIT 8
+        """
+        ejemplo_df = dwh_query(ejemplo_sql)
+        if ejemplo_df is not None and not ejemplo_df.empty:
+            st.dataframe(ejemplo_df, use_container_width=True, hide_index=True)
+        else:
+            st.warning("No se encontraron filas con poll_name no vacío.")
 
         st.markdown("---")
         st.markdown("**Rango de fechas y volumen disponible (para saber cuánto histórico hay):**")
@@ -589,8 +627,8 @@ with st.expander("🔧 Diagnóstico del Data Warehouse (capturar y enviar a NOVA
 
     st.caption(
         "Este panel es temporal, solo para calibrar la integración. Capturá cada sección (tablas, "
-        "columnas+muestra, y rango de fechas) y mandámelas — con eso confirmo que las consultas del "
-        "dashboard están usando los nombres de columna correctos."
+        "columnas+muestra, verificación de poll_name, y rango de fechas) y mandámelas — con eso "
+        "confirmo que las consultas del dashboard están usando los nombres de columna correctos."
     )
 
 # ══════════════════════════════════════════════════════════════
