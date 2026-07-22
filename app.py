@@ -538,6 +538,62 @@ _campanas_fuera_alcance = _gr_campanas_antes - gr["name_clean"].nunique()
 _dwh_ok, _dwh_msg, _dwh_tablas = dwh_status()
 
 # ══════════════════════════════════════════════════════════════
+#  🔧 DIAGNÓSTICO DWH (temporal) — para validar el esquema en vivo
+#  Corre exactamente lo que necesito ver. Capturar y enviar cada sección.
+# ══════════════════════════════════════════════════════════════
+with st.expander("🔧 Diagnóstico del Data Warehouse (capturar y enviar a NOVA)", expanded=False):
+    if not _dwh_ok:
+        st.markdown(f'<div class="alrt">🟡 No conectado: {_dwh_msg}</div>', unsafe_allow_html=True)
+    else:
+        st.markdown(f'<div class="good">🟢 {_dwh_msg} — {len(_dwh_tablas)} tablas disponibles.</div>',
+                    unsafe_allow_html=True)
+        st.markdown("**Tablas disponibles:**")
+        st.dataframe(pd.DataFrame({"tabla": _dwh_tablas}), use_container_width=True, hide_index=True, height=200)
+
+        st.markdown("---")
+        tablas_clave = ["fact_deployment_daily", "fact_sessions", "fact_hsm_responses", "dim_hsm"]
+        tabla_pick = st.selectbox("Elegí una tabla para inspeccionar", tablas_clave, key="diag_tabla")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown(f"**Columnas de `{tabla_pick}`:**")
+            desc = dwh_query(f"DESCRIBE TABLE client_analytics.{tabla_pick}")
+            if desc is not None and not desc.empty:
+                st.dataframe(desc, use_container_width=True, hide_index=True, height=280)
+            else:
+                st.warning("No se pudo describir la tabla (revisar permisos del usuario readonly).")
+        with col2:
+            st.markdown(f"**Muestra de datos de `{tabla_pick}` (5 filas):**")
+            muestra = dwh_query(f"SELECT * FROM client_analytics.{tabla_pick} LIMIT 5")
+            if muestra is not None and not muestra.empty:
+                st.dataframe(muestra, use_container_width=True, hide_index=True, height=280)
+            else:
+                st.warning("La consulta no devolvió filas.")
+
+        st.markdown("---")
+        st.markdown("**Rango de fechas y volumen disponible (para saber cuánto histórico hay):**")
+        rango_sql = """
+            SELECT
+                (SELECT min(day) FROM client_analytics.fact_deployment_daily) AS pushes_desde,
+                (SELECT max(day) FROM client_analytics.fact_deployment_daily) AS pushes_hasta,
+                (SELECT count() FROM client_analytics.fact_deployment_daily) AS pushes_filas,
+                (SELECT min(created_at) FROM client_analytics.fact_sessions) AS sesiones_desde,
+                (SELECT max(created_at) FROM client_analytics.fact_sessions) AS sesiones_hasta,
+                (SELECT count() FROM client_analytics.fact_sessions) AS sesiones_filas
+        """
+        rango_df = dwh_query(rango_sql)
+        if rango_df is not None and not rango_df.empty:
+            st.dataframe(rango_df, use_container_width=True, hide_index=True)
+        else:
+            st.warning("No se pudo calcular el rango de fechas (revisar nombres de columna de fecha).")
+
+    st.caption(
+        "Este panel es temporal, solo para calibrar la integración. Capturá cada sección (tablas, "
+        "columnas+muestra, y rango de fechas) y mandámelas — con eso confirmo que las consultas del "
+        "dashboard están usando los nombres de columna correctos."
+    )
+
+# ══════════════════════════════════════════════════════════════
 #  CONFIGURACIÓN DEL MODELO DE COSTO (panel plegable, sin sidebar)
 # ══════════════════════════════════════════════════════════════
 with st.expander("⚙️ Configuración del modelo de costo (tarifa real de Treble, auditada)", expanded=False):
