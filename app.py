@@ -850,6 +850,18 @@ with tab2:
         gr_f = gr_f[gr_f["name_clean"].isin(campanas_sel)]
     gr_costo = con_costo(gr_f)
 
+    # Aviso inmediato y bien visible si el rango elegido no tiene NINGÚN envío real —
+    # si no, la tabla se llena solo con las filas en 0 (plantillas activas sin datos) y
+    # da la falsa impresión de que el dashboard está roto, cuando el problema es la fecha.
+    if gr_f["successful"].sum() == 0:
+        st.markdown(
+            f'<div class="crit">🚨 <b>No hay envíos registrados entre {r2_ini} y {r2_fin}.</b> '
+            f'Todo lo que ves abajo son las plantillas activas del catálogo en $0 — no es un error del '
+            f'dashboard, es que no hay datos reales en ese rango de fechas. Datos disponibles: '
+            f'{gr["fecha"].min()} a {gr["fecha"].max()}. Ajustá el "📅 Rango de fechas" de arriba.</div>',
+            unsafe_allow_html=True
+        )
+
     st.markdown("<br>", unsafe_allow_html=True)
 
     agg = gr_costo.groupby("name_clean", observed=True).agg(
