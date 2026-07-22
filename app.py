@@ -194,6 +194,12 @@ def fmt_usd(v):
     return f"${v:,.2f}"
 
 
+def boton_descarga(df, nombre_archivo, key, label="⬇️ Descargar esta tabla (.csv)"):
+    """Botón de descarga CSV reutilizable — mismo patrón que el dashboard ATC."""
+    st.download_button(label, df.to_csv(index=False).encode("utf-8-sig"),
+                        file_name=nombre_archivo, mime="text/csv", key=key)
+
+
 def _norm_txt(s):
     """Normaliza texto para comparar nombres de campañas sin que tildes/mayúsculas generen falsos 'sin match'."""
     import unicodedata
@@ -297,8 +303,7 @@ def dwh_sessions(dias=32):
             session_id, created_at AS session_started_timestamp,
             finished_at AS session_finished_timestamp,
             inbound_outbound AS session_type, status AS session_status,
-            country_code AS user_country_code, poll_id, poll_name,
-            channel_cellphone AS whatsapp_link_campaign_name
+            country_code AS user_country_code, poll_id, poll_name
         FROM client_analytics.fact_sessions
         WHERE created_at >= now() - INTERVAL {int(dias)} DAY
     """
@@ -307,6 +312,11 @@ def dwh_sessions(dias=32):
         return None
     for c in ["session_started_timestamp", "session_finished_timestamp"]:
         df[c] = pd.to_datetime(df[c], errors="coerce")
+    # whatsapp_link_campaign_name en el CSV era el link de tracking de la campaña saliente.
+    # fact_sessions no tiene ese campo exacto — usamos poll_name (el flujo/plantilla que
+    # disparó la sesión), que es lo más cercano y real disponible. NO usamos channel_cellphone
+    # (eso es solo el número de teléfono del canal, etiquetarlo como "campaña" sería incorrecto).
+    df["whatsapp_link_campaign_name"] = df["poll_name"]
     # Campos que el CSV traía y fact_sessions no tiene — se dejan vacíos, no inventados
     df["first_message_timestamp"] = pd.NaT
     df["last_message_timestamp"] = pd.NaT
@@ -517,7 +527,9 @@ def _es_campana_atc(nombre):
     return any(k in n or n in k for k in _cat_norm_set)
 
 _gr_campanas_antes = gr["name_clean"].nunique()
+_fuente_gr = gr.attrs.get("fuente", "csv")
 gr = gr[gr["name_clean"].apply(_es_campana_atc)].copy()
+gr.attrs["fuente"] = _fuente_gr
 for c in ["name", "name_clean"]:
     gr[c] = gr[c].astype("category")
 _campanas_fuera_alcance = _gr_campanas_antes - gr["name_clean"].nunique()
@@ -625,6 +637,9 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
 # ────────────────────────────────────────────────────────────────
 with tab1:
     st.markdown('<span class="sec">Panorama general del período seleccionado</span>', unsafe_allow_html=True)
+    _f_gr = "🟢 Data Warehouse en vivo" if gr.attrs.get("fuente") == "dwh" else "🟡 CSV (respaldo)"
+    _f_sr = "🟢 Data Warehouse en vivo" if sr.attrs.get("fuente") == "dwh" else "🟡 CSV (respaldo)"
+    st.caption(f"Fuente de datos — Pushes: {_f_gr} · Conversaciones: {_f_sr}")
 
     fc1, fc2 = st.columns([1, 3])
     with fc1:
@@ -767,6 +782,7 @@ with tab1:
             })
         cmp_df = pd.DataFrame(filas_cmp)
         st.dataframe(cmp_df, use_container_width=True, hide_index=True)
+        boton_descarga(cmp_df, f"comparativa_{periodo_a}_vs_{periodo_b}.csv", "t1_dl_cmp")
         st.caption(
             f"Comparando {granularidad.lower()} del {periodo_a} contra el {periodo_b}. "
             "Cambia la granularidad o los períodos arriba para comparar cualquier combinación."
@@ -875,6 +891,7 @@ with tab2:
             "tasa_respuesta_%": st.column_config.ProgressColumn("Tasa respuesta %", min_value=0, max_value=100, format="%.1f%%"),
         }
     )
+    boton_descarga(tabla[cols_tabla], "costo_por_push.csv", "t2_dl_tabla")
     st.caption(
         "💡 'Conversaciones facturables (est.)' depende del modelo de costo elegido arriba (⚙️ Configuración): "
         "todo lo entregado, o solo lo que generó respuesta. 'Activo' viene del catálogo de plantillas "
@@ -915,6 +932,7 @@ with tab2:
                      "Gasto modelado ($0.20/conv.)": st.column_config.NumberColumn(format="$%.2f"),
                      "Diferencia": st.column_config.NumberColumn(format="$%.2f"),
                  })
+    boton_descarga(audit_df, "auditoria_tarifa_real.csv", "t2_dl_audit")
     st.markdown(
         '<div class="good">✅ <b>Auditoría validada:</b> el modelo de $0.20 por conversación replica el '
         'gasto real reportado por Treble prácticamente exacto (diferencia de centavos por redondeo) en '
@@ -1025,14 +1043,18 @@ with tab3:
         st.plotly_chart(sfig(fig, 320), use_container_width=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown('<span class="sec purple">Sesiones con link de campaña (tracking de origen)</span>', unsafe_allow_html=True)
+    st.markdown('<span class="sec purple">Sesiones por campaña / flujo de origen</span>', unsafe_allow_html=True)
     link_data = sr_f[sr_f["whatsapp_link_campaign_name"].notna()]
     if len(link_data):
         lk = link_data.groupby("whatsapp_link_campaign_name", observed=True).size().reset_index(name="n").sort_values("n", ascending=False)
-        st.dataframe(lk.rename(columns={"whatsapp_link_campaign_name": "Campaña (link de origen)", "n": "Sesiones"}),
-                     use_container_width=True, hide_index=True)
+        lk_tabla = lk.rename(columns={"whatsapp_link_campaign_name": "Campaña / flujo de origen", "n": "Sesiones"})
+        st.dataframe(lk_tabla, use_container_width=True, hide_index=True)
+        boton_descarga(lk_tabla, "sesiones_por_campana.csv", "t3_dl_link")
+        if sr.attrs.get("fuente") == "dwh":
+            st.caption("Fuente: `poll_name` del Data Warehouse (el flujo que disparó la sesión) — "
+                       "no es un link de tracking con UTM, es la campaña/plantilla real de origen.")
     else:
-        st.info("No hay sesiones con link de campaña identificado en el rango seleccionado.")
+        st.info("No hay sesiones con campaña de origen identificada en el rango seleccionado.")
 
 
 # ────────────────────────────────────────────────────────────────
@@ -1100,15 +1122,15 @@ with tab4:
     if buscar:
         cat_f = cat_f[cat_f["conversacion"].str.contains(buscar, case=False, na=False)]
 
-    st.dataframe(
-        cat_f[["conversacion", "plantilla", "tipo", "proposito", "estado", "equipo",
-               "envios_historicos", "entregados_historicos", "auditoria"]].rename(columns={
-            "conversacion": "Conversación / Campaña", "plantilla": "HSM / Plantilla",
-            "tipo": "Tipo", "proposito": "Para qué se envía", "estado": "Estado", "equipo": "Equipo",
-            "envios_historicos": "Envíos reales (histórico)", "entregados_historicos": "Entregados reales",
-            "auditoria": "Nota de auditoría"
-        }), use_container_width=True, hide_index=True, height=420
-    )
+    cat_f_tabla = cat_f[["conversacion", "plantilla", "tipo", "proposito", "estado", "equipo",
+                         "envios_historicos", "entregados_historicos", "auditoria"]].rename(columns={
+        "conversacion": "Conversación / Campaña", "plantilla": "HSM / Plantilla",
+        "tipo": "Tipo", "proposito": "Para qué se envía", "estado": "Estado", "equipo": "Equipo",
+        "envios_historicos": "Envíos reales (histórico)", "entregados_historicos": "Entregados reales",
+        "auditoria": "Nota de auditoría"
+    })
+    st.dataframe(cat_f_tabla, use_container_width=True, hide_index=True, height=420)
+    boton_descarga(cat_f_tabla, "catalogo_plantillas.csv", "t4_dl_catalogo")
     st.caption(
         "'Envíos reales (histórico)' y 'Entregados reales' vienen del cruce directo con el Reporte "
         "general de Treble — no son estimados."
@@ -1305,6 +1327,12 @@ with tab6:
         fig.update_layout(xaxis_title="Clientes en fuga real", yaxis_title="",
                            margin=dict(r=220))  # espacio para que la etiqueta no se corte
         st.plotly_chart(sfig(fig, 460), use_container_width=True)
+        boton_descarga(
+            rank.rename(columns={"fuga_real": "Clientes en fuga real", "puntos_de_quiebre": "Puntos de quiebre",
+                                  "entrantes": "Entrantes", "pct_entrantes": "% de entrantes"})
+            [["Plantilla", "Clientes en fuga real", "% de entrantes", "Puntos de quiebre", "Entrantes"]],
+            "ranking_fuga_real.csv", "t6_dl_ranking"
+        )
 
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown('<span class="sec purple">🌳 Árbol de decisiones — dónde se caen los clientes</span>',
@@ -1373,11 +1401,10 @@ with tab6:
             puntos = puntos.sort_values("N Clientes", ascending=False)
             if len(puntos):
                 alto = min(420, 46 + 38 * len(puntos))
-                st.dataframe(
-                    puntos.rename(columns={"Paso Origen": "Paso", "Nodo Origen": "Mensaje",
-                                            "N Clientes": "Clientes en silencio", "Pct Del Nodo": "% del nodo"}),
-                    use_container_width=True, hide_index=True, height=alto
-                )
+                puntos_tabla = puntos.rename(columns={"Paso Origen": "Paso", "Nodo Origen": "Mensaje",
+                                                        "N Clientes": "Clientes en silencio", "Pct Del Nodo": "% del nodo"})
+                st.dataframe(puntos_tabla, use_container_width=True, hide_index=True, height=alto)
+                boton_descarga(puntos_tabla, f"puntos_quiebre_{plantilla_pick}.csv", "t6_dl_puntos")
             else:
                 st.info("Este flujo no tiene puntos de fuga real detectados (es informativo de una sola vía, "
                         "o casi todos los que llegan responden).")
