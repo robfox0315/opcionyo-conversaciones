@@ -565,96 +565,6 @@ else:
 _dwh_ok, _dwh_msg, _dwh_tablas = dwh_status()
 
 # ══════════════════════════════════════════════════════════════
-#  🔧 DIAGNÓSTICO DWH (temporal) — para validar el esquema en vivo
-#  Corre exactamente lo que necesito ver. Capturar y enviar cada sección.
-# ══════════════════════════════════════════════════════════════
-with st.expander("🔧 Diagnóstico del Data Warehouse (capturar y enviar a NOVA)", expanded=False):
-    if not _dwh_ok:
-        st.markdown(f'<div class="alrt">🟡 No conectado: {_dwh_msg}</div>', unsafe_allow_html=True)
-    else:
-        st.markdown(f'<div class="good">🟢 {_dwh_msg} — {len(_dwh_tablas)} tablas disponibles.</div>',
-                    unsafe_allow_html=True)
-        st.markdown("**Tablas disponibles:**")
-        st.dataframe(pd.DataFrame({"tabla": _dwh_tablas}), use_container_width=True, hide_index=True, height=200)
-
-        st.markdown("---")
-        tablas_clave = ["fact_deployment_daily", "fact_sessions", "fact_hsm_responses", "dim_hsm",
-                         "fact_whatsapp_links", "fact_redirections", "fact_conversations",
-                         "fact_deployment_status", "fact_inbound_messages", "dim_teams", "dim_agents"]
-        tabla_pick = st.selectbox("Elegí una tabla para inspeccionar", tablas_clave, key="diag_tabla")
-
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown(f"**Columnas de `{tabla_pick}`:**")
-            desc = dwh_query(f"DESCRIBE TABLE client_analytics.{tabla_pick}")
-            if desc is not None and not desc.empty:
-                st.dataframe(desc, use_container_width=True, hide_index=True, height=280)
-            else:
-                st.warning("No se pudo describir la tabla (revisar permisos del usuario readonly).")
-        with col2:
-            st.markdown(f"**Muestra de datos de `{tabla_pick}` (5 filas):**")
-            muestra = dwh_query(f"SELECT * FROM client_analytics.{tabla_pick} LIMIT 5")
-            if muestra is not None and not muestra.empty:
-                st.dataframe(muestra, use_container_width=True, hide_index=True, height=280)
-            else:
-                st.warning("La consulta no devolvió filas.")
-
-        st.markdown("---")
-        st.markdown("**⚠️ Verificación: ¿qué tan seguido viene `poll_name` vacío en fact_deployment_daily?**")
-        st.caption("Si sale un % alto de vacíos, no puedo usar poll_name para armar el reporte de Pushes "
-                   "tal como está — necesito otra forma de conseguir el nombre real de la campaña.")
-        chk_sql = """
-            SELECT
-                count() AS filas_totales,
-                countIf(poll_name = '' OR poll_name IS NULL) AS filas_sin_nombre,
-                round(countIf(poll_name = '' OR poll_name IS NULL) * 100.0 / count(), 1) AS pct_sin_nombre,
-                sum(sent) AS sent_total,
-                sumIf(sent, poll_name = '' OR poll_name IS NULL) AS sent_sin_nombre
-            FROM client_analytics.fact_deployment_daily
-        """
-        chk_df = dwh_query(chk_sql)
-        if chk_df is not None and not chk_df.empty:
-            st.dataframe(chk_df, use_container_width=True, hide_index=True)
-        else:
-            st.warning("No se pudo correr la verificación.")
-
-        st.markdown("**Ejemplo de filas CON poll_name (para confirmar el formato del nombre real):**")
-        ejemplo_sql = """
-            SELECT day, poll_id, poll_name, sent, delivered, responded, response_rate_pct
-            FROM client_analytics.fact_deployment_daily
-            WHERE poll_name != '' AND poll_name IS NOT NULL
-            ORDER BY sent DESC LIMIT 8
-        """
-        ejemplo_df = dwh_query(ejemplo_sql)
-        if ejemplo_df is not None and not ejemplo_df.empty:
-            st.dataframe(ejemplo_df, use_container_width=True, hide_index=True)
-        else:
-            st.warning("No se encontraron filas con poll_name no vacío.")
-
-        st.markdown("---")
-        st.markdown("**Rango de fechas y volumen disponible (para saber cuánto histórico hay):**")
-        rango_sql = """
-            SELECT
-                (SELECT min(day) FROM client_analytics.fact_deployment_daily) AS pushes_desde,
-                (SELECT max(day) FROM client_analytics.fact_deployment_daily) AS pushes_hasta,
-                (SELECT count() FROM client_analytics.fact_deployment_daily) AS pushes_filas,
-                (SELECT min(created_at) FROM client_analytics.fact_sessions) AS sesiones_desde,
-                (SELECT max(created_at) FROM client_analytics.fact_sessions) AS sesiones_hasta,
-                (SELECT count() FROM client_analytics.fact_sessions) AS sesiones_filas
-        """
-        rango_df = dwh_query(rango_sql)
-        if rango_df is not None and not rango_df.empty:
-            st.dataframe(rango_df, use_container_width=True, hide_index=True)
-        else:
-            st.warning("No se pudo calcular el rango de fechas (revisar nombres de columna de fecha).")
-
-    st.caption(
-        "Este panel es temporal, solo para calibrar la integración. Capturá cada sección (tablas, "
-        "columnas+muestra, verificación de poll_name, y rango de fechas) y mandámelas — con eso "
-        "confirmo que las consultas del dashboard están usando los nombres de columna correctos."
-    )
-
-# ══════════════════════════════════════════════════════════════
 #  CONFIGURACIÓN DEL MODELO DE COSTO (panel plegable, sin sidebar)
 # ══════════════════════════════════════════════════════════════
 with st.expander("⚙️ Configuración del modelo de costo (tarifa real de Treble, auditada)", expanded=False):
@@ -1051,11 +961,11 @@ with tab2:
                  })
     boton_descarga(audit_df, "auditoria_tarifa_real.csv", "t2_dl_audit")
     st.markdown(
-        '<div class="good">✅ <b>Auditoría validada:</b> el modelo de $0.20 por conversación replica el '
-        'gasto real reportado por Treble prácticamente exacto (diferencia de centavos por redondeo) en '
-        'las 14 plantillas operativas de ATC verificadas. Los tramos superiores ($0.18 / $0.15 / $0.12) '
-        'aplican automáticamente cuando el volumen mensual total supera 5,000 / 10,000 / 20,000 '
-        'conversaciones — el dashboard ya lo calcula solo, mes a mes.</div>',
+        f'<div class="good">✅ <b>Auditoría validada:</b> el modelo de $0.20 por conversación replica el '
+        f'gasto real reportado por Treble prácticamente exacto (diferencia de centavos por redondeo) en '
+        f'las {len(TREBLE_REAL_POR_PUSH)} plantillas operativas de ATC verificadas. Los tramos superiores '
+        f'($0.18 / $0.15 / $0.12) aplican automáticamente cuando el volumen mensual total supera '
+        f'5,000 / 10,000 / 20,000 conversaciones — el dashboard ya lo calcula solo, mes a mes.</div>',
         unsafe_allow_html=True
     )
 
@@ -1358,10 +1268,10 @@ with tab5:
 # TAB 6 · ÁRBOL DE CONVERSACIÓN (dónde se rompe / dónde queda en silencio)
 # ────────────────────────────────────────────────────────────────
 with tab6:
-    st.markdown('<span class="sec">Dónde se rompe la conversación</span>', unsafe_allow_html=True)
+    st.markdown('<span class="sec">🌳 Dónde se rompe la conversación</span>', unsafe_allow_html=True)
 
     # ── Sección en vivo: lo que SÍ se puede sacar del DWH directamente ──
-    st.markdown('<span class="sec blue">🔴 En vivo — respuesta a plantillas HSM (Data Warehouse)</span>',
+    st.markdown('<span class="sec blue">🟢 En vivo — respuesta a plantillas HSM (Data Warehouse)</span>',
                 unsafe_allow_html=True)
     if not _dwh_ok:
         st.markdown('<div class="alrt">Data Warehouse no conectado ahora mismo — esta sección se activa sola '
@@ -1383,9 +1293,9 @@ with tab6:
             st.plotly_chart(sfig(fig, 360), use_container_width=True)
         st.caption(
             "Esto viene de `fact_hsm_responses`, en vivo. Pero ojo: esta tabla **solo tiene una fila cuando "
-            "el usuario SÍ respondió** — no registra quién se quedó en silencio. Por eso, para calcular fugas "
-            "reales necesitamos cruzarla contra los envíos totales (`fact_deployment_daily`), y aun así no "
-            "reconstruye el árbol paso a paso — solo el total de respuesta por plantilla."
+            "el usuario SÍ respondió** — no registra quién se quedó en silencio. Confirmado con el equipo: "
+            "el Data Warehouse no tiene la navegación nodo-a-nodo de un flujo, así que el análisis completo "
+            "de abajo (con el export de Treble) sigue siendo la fuente principal."
         )
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -1411,33 +1321,32 @@ with tab6:
         fuga_real_df = arbol[arbol["fuga_real"]]
         total_fuga_real = int(fuga_real_df["N Clientes"].sum())
         n_puntos = fuga_real_df["Origen ID"].nunique()
-        top_plantilla = (fuga_real_df.groupby("Plantilla")["N Clientes"].sum()
-                          .sort_values(ascending=False))
+        rank_global = fuga_real_df.groupby("Plantilla").agg(
+            fuga_real=("N Clientes", "sum"), puntos_de_quiebre=("Origen ID", "nunique"),
+            entrantes=("entrantes_plantilla", "first"),
+        ).reset_index().sort_values("fuga_real", ascending=False)
+        rank_global["pct_entrantes"] = (rank_global["fuga_real"] / rank_global["entrantes"] * 100).round(1)
 
         c1, c2, c3 = st.columns(3)
         c1.markdown(kpi("Clientes en fuga real", f"{total_fuga_real:,}", "con alternativa real de responder", "warn"),
                     unsafe_allow_html=True)
         c2.markdown(kpi("Puntos de quiebre distintos", f"{n_puntos}", "en todos los flujos", "amber"),
                     unsafe_allow_html=True)
-        if len(top_plantilla):
-            c3.markdown(kpi("Plantilla con más fuga", f"{int(top_plantilla.iloc[0]):,}",
-                            top_plantilla.index[0][:30], "dark"), unsafe_allow_html=True)
+        if len(rank_global):
+            top_row = rank_global.iloc[0]
+            c3.markdown(kpi("Plantilla con más fuga", f"{int(top_row['fuga_real']):,}",
+                            top_row["Plantilla"][:30], "dark"), unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown('<span class="sec red">Ranking de plantillas por volumen de fuga real</span>', unsafe_allow_html=True)
+        st.markdown('<span class="sec red">📊 Ranking de plantillas por volumen de fuga real</span>', unsafe_allow_html=True)
         st.caption(
             "Cada barra = cuántos clientes recibieron esa plantilla, tenían una opción real para "
             "responder, y aun así no respondieron. El % es sobre el total de gente que entró a esa "
             "plantilla (no sobre el total general)."
         )
-        rank = fuga_real_df.groupby("Plantilla").agg(
-            fuga_real=("N Clientes", "sum"), puntos_de_quiebre=("Origen ID", "nunique"),
-            entrantes=("entrantes_plantilla", "first"),
-        ).reset_index().sort_values("fuga_real", ascending=False)
-        rank["pct_entrantes"] = (rank["fuga_real"] / rank["entrantes"] * 100).round(1)
-        rank["etiqueta"] = rank.apply(lambda r: f"{int(r['fuga_real']):,} ({r['pct_entrantes']:.0f}% de {int(r['entrantes']):,} entrantes)", axis=1)
-
-        top15 = rank.head(15).sort_values("fuga_real")
+        rank_global["etiqueta"] = rank_global.apply(
+            lambda r: f"{int(r['fuga_real']):,} ({r['pct_entrantes']:.0f}% de {int(r['entrantes']):,} entrantes)", axis=1)
+        top15 = rank_global.head(15).sort_values("fuga_real")
         fig = px.bar(top15, x="fuga_real", y="Plantilla", orientation="h",
                      color_discrete_sequence=[OY_WARN], text="etiqueta")
         fig.update_traces(textposition="outside", textfont=dict(size=11))
@@ -1445,18 +1354,61 @@ with tab6:
                            margin=dict(r=220))  # espacio para que la etiqueta no se corte
         st.plotly_chart(sfig(fig, 460), use_container_width=True)
         boton_descarga(
-            rank.rename(columns={"fuga_real": "Clientes en fuga real", "puntos_de_quiebre": "Puntos de quiebre",
-                                  "entrantes": "Entrantes", "pct_entrantes": "% de entrantes"})
+            rank_global.rename(columns={"fuga_real": "Clientes en fuga real", "puntos_de_quiebre": "Puntos de quiebre",
+                                         "entrantes": "Entrantes", "pct_entrantes": "% de entrantes"})
             [["Plantilla", "Clientes en fuga real", "% de entrantes", "Puntos de quiebre", "Entrantes"]],
             "ranking_fuga_real.csv", "t6_dl_ranking"
         )
 
+        # ── 🔎 Hallazgos automáticos — 100% calculados desde los datos actuales, nunca escritos a mano ──
         st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown('<span class="sec purple">🌳 Árbol de decisiones — dónde se caen los clientes</span>',
+        st.markdown('<span class="sec">🔎 Hallazgos automáticos</span>', unsafe_allow_html=True)
+
+        def _extracto(texto, largo=140):
+            texto = str(texto).strip()
+            return (texto[:largo] + "…") if len(texto) > largo else texto
+
+        if len(rank_global):
+            # Hallazgo 1: el quiebre más concentrado (mayor volumen en un solo punto de un solo mensaje)
+            fila_max = fuga_real_df.loc[fuga_real_df["N Clientes"].idxmax()]
+            plantilla_concentrada = fila_max["Plantilla"]
+            filas_msg = fuga_real_df[(fuga_real_df["Plantilla"] == plantilla_concentrada) &
+                                      (fuga_real_df["Origen ID"] == fila_max["Origen ID"])]
+            pct_lo, pct_hi = filas_msg["Pct Del Nodo"].min(), filas_msg["Pct Del Nodo"].max()
+            vol_msg = int(filas_msg["N Clientes"].sum())
+            rango_pct = f"{pct_lo:.0f}%" if pct_lo == pct_hi else f"{pct_lo:.0f}–{pct_hi:.0f}%"
+            st.markdown(
+                f'<div class="crit">⚠️ <b>"{plantilla_concentrada}"</b> es el quiebre más grande y concentrado: '
+                f'el mensaje <i>"{_extracto(fila_max["Nodo Origen"])}"</i> se queda sin respuesta en el '
+                f'<b>{rango_pct} de los casos</b> ({vol_msg:,} clientes), a pesar de que sí hay gente que '
+                f'responde cuando se le pregunta. Vale la pena revisar el copy, agregar un botón de respuesta '
+                f'rápida, o ajustar el tiempo antes de escalar a un agente humano.</div>', unsafe_allow_html=True
+            )
+
+            # Hallazgo 2: el flujo con fricción más repartida (más puntos de quiebre distintos)
+            candidatos = rank_global[rank_global["Plantilla"] != plantilla_concentrada]
+            if len(candidatos):
+                fila_disperso = candidatos.sort_values("puntos_de_quiebre", ascending=False).iloc[0]
+                if fila_disperso["puntos_de_quiebre"] >= 5:
+                    plantilla_disperso = fila_disperso["Plantilla"]
+                    primer_paso = fuga_real_df[fuga_real_df["Plantilla"] == plantilla_disperso].sort_values(
+                        "N Clientes", ascending=False).iloc[0]
+                    st.markdown(
+                        f'<div class="alrt">El flujo <b>"{plantilla_disperso}"</b> tiene fuga real repartida en '
+                        f'<b>{int(fila_disperso["puntos_de_quiebre"])} puntos distintos</b> '
+                        f'({int(fila_disperso["fuga_real"]):,} clientes en total) — no hay un solo quiebre '
+                        f'gigante, sino fricción distribuida en varios pasos. El punto más grande dentro de '
+                        f'este flujo es <i>"{_extracto(primer_paso["Nodo Origen"], 100)}"</i> '
+                        f'({primer_paso["Pct Del Nodo"]:.0f}% de quienes lo reciben no eligen ninguna '
+                        f'opción).</div>', unsafe_allow_html=True
+                    )
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown('<span class="sec purple">🔬 Inspeccionar un flujo específico</span>',
                     unsafe_allow_html=True)
         fc1, fc2 = st.columns([2, 1])
         with fc1:
-            plantilla_pick = st.selectbox("Flujo", rank["Plantilla"].tolist(), key="t6_plantilla")
+            plantilla_pick = st.selectbox("Flujo", rank_global["Plantilla"].tolist(), key="t6_plantilla")
         with fc2:
             min_clientes = st.number_input("Mínimo de clientes por rama", min_value=0, value=50, step=10,
                                             key="t6_min_clientes",
@@ -1472,15 +1424,18 @@ with tab6:
 
         sub = sub_full[sub_full["N Clientes"] >= min_clientes].copy()
         n_ocultas = len(sub_full) - len(sub)
+        vol_oculto = int(sub_full[sub_full["N Clientes"] < min_clientes]["N Clientes"].sum())
 
         col1, col2 = st.columns([1.4, 1])
         with col1:
             st.markdown('<span class="sec blue">Mapa del flujo</span>', unsafe_allow_html=True)
+            aviso_ocultas = (f" **{n_ocultas} rama(s)** con menos de {min_clientes} clientes están ocultas "
+                              f"({vol_oculto:,} clientes, {safe_pct(vol_oculto, total_flujo)}% del flujo) — "
+                              f"bajá el mínimo de arriba si querés verlas." if n_ocultas else "")
             st.caption(
                 "Se lee de izquierda a derecha: cada barra es un mensaje, cada franja es cuánta gente "
                 "pasó de un mensaje al siguiente. 🔴 rojo = terminó en silencio · 🔵 teal = siguió "
-                "conversando." + (f" {n_ocultas} rama(s) con menos de {min_clientes} clientes están "
-                                   "ocultas — bajá el mínimo de arriba si querés verlas." if n_ocultas else "")
+                "conversando." + aviso_ocultas
             )
 
             if sub.empty:
@@ -1526,27 +1481,8 @@ with tab6:
                 st.info("Este flujo no tiene puntos de fuga real detectados (es informativo de una sola vía, "
                         "o casi todos los que llegan responden).")
 
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown('<span class="sec">🔎 Hallazgo principal de esta auditoría</span>', unsafe_allow_html=True)
-        st.markdown(
-            '<div class="crit">⚠️ <b>"esp_espera" (especialista esperando)</b> es el quiebre más grande y '
-            'concentrado: el mensaje <i>"tu especialista te espera por la plataforma. ¿Tienes alguna '
-            'dificultad que te impide ingresar?"</i> se queda sin respuesta en el <b>82–86% de los casos</b> '
-            '(4,114 clientes), a pesar de que sí hay gente que responde cuando se le pregunta. Cada uno de '
-            'esos casos es una sesión donde el especialista esperó y el sistema nunca supo si hubo un '
-            'problema real o el cliente simplemente no vio el mensaje — vale la pena revisar el copy, '
-            'agregar un botón de respuesta rápida, o acortar el tiempo antes de escalar a un agente '
-            'humano.</div>', unsafe_allow_html=True
-        )
-        st.markdown(
-            '<div class="alrt">El flujo principal del bot de ATC ("(sin nombre)") tiene fuga real repartida '
-            'en 117 puntos distintos del árbol (3,153 clientes en total) — no hay un solo quiebre gigante, '
-            'sino fricción distribuida en varios pasos del menú. El punto más grande es el mensaje de '
-            'bienvenida inicial: entre 14% y 28% de quienes lo reciben no eligen ninguna opción del '
-            'menú.</div>', unsafe_allow_html=True
-        )
-
 st.markdown("<br><hr>", unsafe_allow_html=True)
 st.caption("Dashboard Conversaciones y Pushes Automáticos · Opción Yo — generado con NOVA. "
-           "Datos: reportes Treble/WhatsApp y catálogo interno de plantillas. "
+           "Datos: Data Warehouse de Treble en vivo (con respaldo automático a CSV si no hay conexión), "
+           "catálogo interno de plantillas y export de árbol de conversación. "
            "No incluye incidencias técnicas (dashboard aparte).")
