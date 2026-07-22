@@ -905,17 +905,21 @@ with tab2:
     tabla = agg.rename(columns={
         "name_clean": "Push / Campaña", "envios": "Enviados", "entregados": "Entregados",
         "conversaciones_facturables": "Conversaciones facturables (est.)",
-        "costo_estimado": "Costo estimado (USD)", "n_batches": "N° envíos (batches)", "equipo": "Equipo dueño"
+        "costo_estimado": "Costo estimado (USD)", "n_batches": "N° de tandas de envío", "equipo": "Equipo dueño"
     })
     cols_tabla = ["Push / Campaña", "Activo", "Equipo dueño", "Enviados", "Entregados",
                   "Conversaciones facturables (est.)", "Costo estimado (USD)",
-                  "tasa_entrega_%", "tasa_respuesta_%", "N° envíos (batches)"]
+                  "tasa_entrega_%", "tasa_respuesta_%", "N° de tandas de envío"]
     st.dataframe(
         tabla[cols_tabla], use_container_width=True, hide_index=True,
         column_config={
             "Costo estimado (USD)": st.column_config.NumberColumn(format="$%.2f"),
             "tasa_entrega_%": st.column_config.ProgressColumn("Tasa entrega %", min_value=0, max_value=100, format="%.1f%%"),
             "tasa_respuesta_%": st.column_config.ProgressColumn("Tasa respuesta %", min_value=0, max_value=100, format="%.1f%%"),
+            "N° de tandas de envío": st.column_config.NumberColumn(
+                help="Cuántas veces distintas se disparó esta plantilla en el período (cada fila del "
+                     "Reporte general de Treble es una tanda — ej. el recordatorio automático que sale "
+                     "cada 3 horas genera una tanda nueva cada vez que corre)."),
         }
     )
     boton_descarga(tabla[cols_tabla], "costo_por_push.csv", "t2_dl_tabla")
@@ -1426,60 +1430,88 @@ with tab6:
         n_ocultas = len(sub_full) - len(sub)
         vol_oculto = int(sub_full[sub_full["N Clientes"] < min_clientes]["N Clientes"].sum())
 
-        col1, col2 = st.columns([1.4, 1])
-        with col1:
-            st.markdown('<span class="sec blue">Mapa del flujo</span>', unsafe_allow_html=True)
-            aviso_ocultas = (f" **{n_ocultas} rama(s)** con menos de {min_clientes} clientes están ocultas "
-                              f"({vol_oculto:,} clientes, {safe_pct(vol_oculto, total_flujo)}% del flujo) — "
-                              f"bajá el mínimo de arriba si querés verlas." if n_ocultas else "")
-            st.caption(
-                "Se lee de izquierda a derecha: cada barra es un mensaje, cada franja es cuánta gente "
-                "pasó de un mensaje al siguiente. 🔴 rojo = terminó en silencio · 🔵 teal = siguió "
-                "conversando." + aviso_ocultas
-            )
+        st.markdown('<span class="sec blue">Mapa del flujo</span>', unsafe_allow_html=True)
+        aviso_ocultas = (f" **{n_ocultas} rama(s)** con menos de {min_clientes} clientes están ocultas "
+                          f"({vol_oculto:,} clientes, {safe_pct(vol_oculto, total_flujo)}% del flujo) — "
+                          f"bajá el mínimo de arriba si querés verlas." if n_ocultas else "")
+        st.caption(
+            "Se lee de izquierda a derecha: cada barra es un mensaje, cada franja es cuánta gente "
+            "pasó de un mensaje al siguiente. Los nodos van con un código corto (P1-a, P2-b…) — el "
+            "texto completo de cada uno está en la leyenda de abajo. 🔴 rojo = terminó en silencio."
+            + aviso_ocultas
+        )
 
-            if sub.empty:
-                st.info("No quedan ramas con ese mínimo de clientes. Bajá el número de 'Mínimo de clientes "
-                        "por rama' para ver el árbol.")
-            else:
-                def _etiqueta_nodo(n):
-                    n = str(n)
-                    # quitamos el prefijo técnico "P1 · " y cortamos a un largo legible
-                    if " · " in n:
-                        n = n.split(" · ", 1)[1]
-                    return (n[:38] + "…") if len(n) > 38 else n
+        if sub.empty:
+            st.info("No quedan ramas con ese mínimo de clientes. Bajá el número de 'Mínimo de clientes "
+                    "por rama' para ver el árbol.")
+        else:
+            # Códigos cortos por nodo (P1-a, P1-b, P2-a...) + tabla de leyenda con el texto completo —
+            # esto es lo que la herramienta de Diosnel NO resuelve (sus etiquetas también se cortan).
+            nodos_orden = list(pd.unique(sub[["Nodo Origen Key", "Nodo Destino Key"]].values.ravel()))
 
-                nodos = pd.unique(sub[["Nodo Origen Key", "Nodo Destino Key"]].values.ravel())
-                nodo_idx = {n: i for i, n in enumerate(nodos)}
-                colores_nodo = [OY_WARN if ("No avanzó" in n or "✖" in n) else OY_TEAL for n in nodos]
-                link_colores = ["rgba(229,72,77,.55)" if f else "rgba(22,182,194,.35)" for f in sub["Es Fuga"]]
-                pct_total = (sub["N Clientes"] / total_flujo * 100).round(1)
-                sankey = go.Figure(go.Sankey(
-                    arrangement="snap",
-                    node=dict(label=[_etiqueta_nodo(n) for n in nodos], pad=18, thickness=18,
-                              color=colores_nodo, line=dict(color="rgba(0,0,0,.15)", width=.5),
-                              hovertemplate="%{label}<extra></extra>"),
-                    link=dict(source=sub["Nodo Origen Key"].map(nodo_idx),
-                              target=sub["Nodo Destino Key"].map(nodo_idx),
-                              value=sub["N Clientes"], color=link_colores,
-                              customdata=pct_total,
-                              hovertemplate="%{value:,} clientes (%{customdata}% del flujo)<extra></extra>")
-                ))
-                st.plotly_chart(sfig(sankey, 560), use_container_width=True)
-        with col2:
-            st.markdown('<span class="sec amb">Puntos de quiebre de este flujo</span>', unsafe_allow_html=True)
-            puntos = sub_full[sub_full["N Clientes"] >= min_clientes]
-            puntos = puntos[puntos["fuga_real"]][["Paso Origen", "Nodo Origen", "N Clientes", "Pct Del Nodo"]]
-            puntos = puntos.sort_values("N Clientes", ascending=False)
-            if len(puntos):
-                alto = min(420, 46 + 38 * len(puntos))
-                puntos_tabla = puntos.rename(columns={"Paso Origen": "Paso", "Nodo Origen": "Mensaje",
-                                                        "N Clientes": "Clientes en silencio", "Pct Del Nodo": "% del nodo"})
-                st.dataframe(puntos_tabla, use_container_width=True, hide_index=True, height=alto)
-                boton_descarga(puntos_tabla, f"puntos_quiebre_{plantilla_pick}.csv", "t6_dl_puntos")
-            else:
-                st.info("Este flujo no tiene puntos de fuga real detectados (es informativo de una sola vía, "
-                        "o casi todos los que llegan responden).")
+            def _paso_de(n):
+                n = str(n)
+                if " · " in n:
+                    return n.split(" · ", 1)[0].strip()
+                if "No avanzó" in n or "✖" in n:
+                    return "FIN"
+                return "?"
+
+            codigo_por_nodo, texto_por_nodo, contador_paso = {}, {}, {}
+            for n in nodos_orden:
+                paso = _paso_de(n)
+                if paso == "FIN":
+                    codigo_por_nodo[n] = "✖ " + n.replace("✖ No avanzó ", "").strip()
+                    texto_por_nodo[n] = "Cliente no respondió / no avanzó"
+                else:
+                    contador_paso[paso] = contador_paso.get(paso, 0) + 1
+                    letra = chr(ord("a") + contador_paso[paso] - 1)
+                    codigo_por_nodo[n] = f"{paso}-{letra}"
+                    texto_por_nodo[n] = n.split(" · ", 1)[1] if " · " in n else n
+
+            nodo_idx = {n: i for i, n in enumerate(nodos_orden)}
+            pasos_unicos = sorted({_paso_de(n) for n in nodos_orden if _paso_de(n) != "FIN"})
+            paso_color = {p: COLOR_SEQ[i % len(COLOR_SEQ)] for i, p in enumerate(pasos_unicos)}
+            colores_nodo = [OY_WARN if _paso_de(n) == "FIN" else paso_color[_paso_de(n)] for n in nodos_orden]
+            link_colores = ["rgba(229,72,77,.55)" if f else "rgba(120,120,120,.28)" for f in sub["Es Fuga"]]
+            pct_total = (sub["N Clientes"] / total_flujo * 100).round(1)
+
+            sankey = go.Figure(go.Sankey(
+                arrangement="snap",
+                node=dict(label=[codigo_por_nodo[n] for n in nodos_orden], pad=22, thickness=26,
+                          color=colores_nodo, line=dict(color="rgba(0,0,0,.2)", width=.6),
+                          hovertemplate="%{label}<extra></extra>"),
+                link=dict(source=sub["Nodo Origen Key"].map(nodo_idx),
+                          target=sub["Nodo Destino Key"].map(nodo_idx),
+                          value=sub["N Clientes"], color=link_colores,
+                          customdata=pct_total,
+                          hovertemplate="%{value:,} clientes (%{customdata}% del flujo)<extra></extra>")
+            ))
+            sankey.update_traces(textfont=dict(size=13, color=OY_CHART_TEXT))
+            st.plotly_chart(sfig(sankey, 620), use_container_width=True)
+
+            col1, col2 = st.columns([1.1, 1])
+            with col1:
+                st.markdown('<span class="sec amb">Leyenda — qué dice cada mensaje</span>', unsafe_allow_html=True)
+                leyenda_df = pd.DataFrame([
+                    {"Código": codigo_por_nodo[n], "Mensaje completo": texto_por_nodo[n]}
+                    for n in nodos_orden
+                ]).drop_duplicates("Código").sort_values("Código")
+                st.dataframe(leyenda_df, use_container_width=True, hide_index=True, height=380)
+                boton_descarga(leyenda_df, f"leyenda_{plantilla_pick}.csv", "t6_dl_leyenda")
+            with col2:
+                st.markdown('<span class="sec red">Puntos de quiebre de este flujo</span>', unsafe_allow_html=True)
+                puntos = sub_full[sub_full["N Clientes"] >= min_clientes]
+                puntos = puntos[puntos["fuga_real"]][["Paso Origen", "Nodo Origen", "N Clientes", "Pct Del Nodo"]]
+                puntos = puntos.sort_values("N Clientes", ascending=False)
+                if len(puntos):
+                    puntos_tabla = puntos.rename(columns={"Paso Origen": "Paso", "Nodo Origen": "Mensaje",
+                                                            "N Clientes": "Clientes en silencio", "Pct Del Nodo": "% del nodo"})
+                    st.dataframe(puntos_tabla, use_container_width=True, hide_index=True, height=380)
+                    boton_descarga(puntos_tabla, f"puntos_quiebre_{plantilla_pick}.csv", "t6_dl_puntos")
+                else:
+                    st.info("Este flujo no tiene puntos de fuga real detectados (es informativo de una sola "
+                            "vía, o casi todos los que llegan responden).")
 
 st.markdown("<br><hr>", unsafe_allow_html=True)
 st.caption("Dashboard Conversaciones y Pushes Automáticos · Opción Yo — generado con NOVA. "
