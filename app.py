@@ -1410,9 +1410,17 @@ with tab6:
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown('<span class="sec purple">🔬 Inspeccionar un flujo específico</span>',
                     unsafe_allow_html=True)
+        # Todas las plantillas del archivo, no solo las que ya tienen fuga real detectada —
+        # con el número de instancias (Poll ID) entre paréntesis, igual que el selector de Diosnel.
+        _instancias_por_plantilla = arbol.groupby("Plantilla")["Poll ID"].nunique()
+        _plantillas_todas = sorted(arbol["Plantilla"].unique(),
+                                    key=lambda p: -_instancias_por_plantilla[p])
+        _opciones_flujo = {f"{p} ({_instancias_por_plantilla[p]})": p for p in _plantillas_todas}
+
         fc1, fc2 = st.columns([2, 1])
         with fc1:
-            plantilla_pick = st.selectbox("Flujo", rank_global["Plantilla"].tolist(), key="t6_plantilla")
+            _flujo_label = st.selectbox("Flujo", list(_opciones_flujo.keys()), key="t6_plantilla")
+            plantilla_pick = _opciones_flujo[_flujo_label]
         with fc2:
             min_clientes = st.number_input("Mínimo de clientes por rama", min_value=0, value=50, step=10,
                                             key="t6_min_clientes",
@@ -1512,6 +1520,59 @@ with tab6:
                 else:
                     st.info("Este flujo no tiene puntos de fuga real detectados (es informativo de una sola "
                             "vía, o casi todos los que llegan responden).")
+
+        # ── Tabla resumen histórica — TODAS las plantillas, no solo el top 15 del ranking ──
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown('<span class="sec">📋 Resumen histórico completo — todas las plantillas</span>',
+                    unsafe_allow_html=True)
+        st.markdown(
+            '<div class="alrt">⚠️ <b>Sobre el filtro por fecha:</b> este export de Treble es una '
+            '<b>foto fija</b> — no trae fecha por fila, así que no puedo filtrar este resumen por período '
+            'como en el resto del dashboard. Para tener una vista histórica real (esta semana vs. la '
+            'pasada, por ejemplo) necesitamos que Treble genere este mismo reporte periódicamente '
+            '(ej. cada lunes) y yo lo comparo entre exports — dime si quieres que armemos ese proceso.</div>',
+            unsafe_allow_html=True
+        )
+
+        resumen_completo = arbol.groupby("Plantilla").agg(
+            instancias=("Poll ID", "nunique"),
+            entrantes=("entrantes_plantilla", "first"),
+            puntos_totales=("Origen ID", "nunique"),
+        ).reset_index()
+        fuga_por_plantilla_total = fuga_real_df.groupby("Plantilla").agg(
+            fuga_real=("N Clientes", "sum"), puntos_de_quiebre=("Origen ID", "nunique")).reset_index()
+        resumen_completo = resumen_completo.merge(fuga_por_plantilla_total, on="Plantilla", how="left")
+        resumen_completo["fuga_real"] = resumen_completo["fuga_real"].fillna(0).astype(int)
+        resumen_completo["puntos_de_quiebre"] = resumen_completo["puntos_de_quiebre"].fillna(0).astype(int)
+        resumen_completo["pct_fuga"] = (resumen_completo["fuga_real"] / resumen_completo["entrantes"] * 100).round(1)
+
+        # Cruce con catálogo para saber equipo dueño y si está activa (mismo criterio que el resto del dashboard)
+        _cat_lookup6 = cat.set_index("conversacion")[["equipo", "activo"]]
+        def _match6(n):
+            nn = _norm_txt(n)
+            for k in _cat_lookup6.index:
+                kn = _norm_txt(k)
+                if kn in nn or nn in kn:
+                    return _cat_lookup6.loc[k, "equipo"]
+            return "Sin match en catálogo"
+        resumen_completo["equipo"] = resumen_completo["Plantilla"].apply(_match6)
+
+        buscar6 = st.text_input("🔍 Buscar plantilla por nombre", key="t6_buscar")
+        resumen_f = resumen_completo.copy()
+        if buscar6:
+            resumen_f = resumen_f[resumen_f["Plantilla"].str.contains(buscar6, case=False, na=False)]
+        resumen_f = resumen_f.sort_values("fuga_real", ascending=False)
+
+        resumen_tabla = resumen_f.rename(columns={
+            "Plantilla": "Plantilla", "instancias": "Instancias (Poll ID)", "entrantes": "Entrantes",
+            "fuga_real": "Clientes en fuga real", "pct_fuga": "% fuga", "puntos_de_quiebre": "Puntos de quiebre",
+            "equipo": "Equipo dueño"
+        })[["Plantilla", "Equipo dueño", "Instancias (Poll ID)", "Entrantes", "Clientes en fuga real",
+            "% fuga", "Puntos de quiebre"]]
+        st.dataframe(resumen_tabla, use_container_width=True, hide_index=True, height=420,
+                     column_config={"% fuga": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%.1f%%")})
+        boton_descarga(resumen_tabla, "resumen_arbol_todas_plantillas.csv", "t6_dl_resumen")
+        st.caption(f"{len(resumen_completo)} plantillas totales en el export · {buscar6 and f'{len(resumen_f)} tras el filtro de búsqueda'}")
 
 st.markdown("<br><hr>", unsafe_allow_html=True)
 st.caption("Dashboard Conversaciones y Pushes Automáticos · Opción Yo — generado con NOVA. "
