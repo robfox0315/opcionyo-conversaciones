@@ -375,20 +375,28 @@ def tarifa_por_tramo(volumen: float) -> float:
 # ══════════════════════════════════════════════════════════════
 @st.cache_data(show_spinner="⏳ Cargando reporte de pushes…")
 def load_general_report():
-    df = dwh_general_report()
-    fuente = "dwh"
-    if df is None:
-        fuente = "csv"
-        path = find_data_file("general_report.csv")
-        if not path:
-            st.error("❌ No hay conexión al Data Warehouse Y no se encontró data/general_report.csv. "
-                      "Necesito al menos una de las dos fuentes.")
-            st.stop()
+    # IMPORTANTE: preferimos el CSV para Pushes, NO el DWH. Auditoría confirmada:
+    # poll_name viene vacío en 40.7% de las filas de fact_deployment_daily (7.3% del
+    # volumen enviado), y los nombres que SÍ vienen poblados son casi todos campañas
+    # de Ventas/Marketing, no las plantillas de ATC que necesitamos identificar. El CSV
+    # (que usa el reporte nativo de Treble, ya agrupado por plantilla) es más confiable
+    # para esto. Si en el futuro encontramos una tabla que resuelva el nombre real por
+    # poll_id (fact_whatsapp_links o join con dim_hsm), volvemos a priorizar el DWH acá.
+    fuente = "csv"
+    path = find_data_file("general_report.csv")
+    if path:
         try:
             df = pd.read_csv(path)
             df["date"] = pd.to_datetime(df["date"], errors="coerce")
         except Exception as e:
             st.error(f"No se pudo leer general_report.csv: {e}")
+            st.stop()
+    else:
+        df = dwh_general_report()
+        fuente = "dwh"
+        if df is None:
+            st.error("❌ No se encontró data/general_report.csv Y no hay conexión al Data Warehouse. "
+                      "Necesito al menos una de las dos fuentes.")
             st.stop()
     if "name_clean" not in df.columns:
         df["name_clean"] = (df["name"]
@@ -537,6 +545,21 @@ gr.attrs["fuente"] = _fuente_gr
 for c in ["name", "name_clean"]:
     gr[c] = gr[c].astype("category")
 _campanas_fuera_alcance = _gr_campanas_antes - gr["name_clean"].nunique()
+
+# Mismo problema en sesiones cuando vienen del DWH: fact_sessions trae TODAS las líneas
+# (868,055 filas totales confirmado en diagnóstico), no solo ATC. El CSV manual ya era
+# ATC-only por naturaleza (export específico), así que este filtro solo aplica al DWH.
+if sr.attrs.get("fuente") == "dwh":
+    _sr_antes = len(sr)
+    _fuente_sr = sr.attrs.get("fuente", "csv")
+    sr = sr[sr["whatsapp_link_campaign_name"].astype(str).apply(_es_campana_atc)].copy()
+    sr.attrs["fuente"] = _fuente_sr
+    for c in ["session_type", "session_status", "user_country_code", "pais",
+              "whatsapp_link_campaign_name", "dia_nombre"]:
+        sr[c] = sr[c].astype("category")
+    _sesiones_fuera_alcance = _sr_antes - len(sr)
+else:
+    _sesiones_fuera_alcance = 0
 
 # Estado del Data Warehouse (silencioso — se usa en la pestaña Árbol, no hace falta mostrarlo aquí)
 _dwh_ok, _dwh_msg, _dwh_tablas = dwh_status()
