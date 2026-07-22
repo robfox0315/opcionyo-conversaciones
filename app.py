@@ -937,8 +937,34 @@ with tab2:
     cols_tabla = ["Push / Campaña", "Activo", "Equipo dueño", "Enviados", "Entregados",
                   "Conversaciones facturables (est.)", "Costo estimado (USD)",
                   "tasa_entrega_%", "tasa_respuesta_%", "N° de tandas de envío"]
+    tabla = tabla[cols_tabla]
+
+    st.markdown("**Filtrar la tabla:**")
+    ft1, ft2, ft3, ft4, ft5 = st.columns([1.3, 1, 1, 1, 1])
+    with ft1:
+        f_nombre = st.text_input("🔍 Push / Campaña", key="t2_f_nombre")
+    with ft2:
+        f_equipo = st.multiselect("Equipo dueño", sorted(tabla["Equipo dueño"].dropna().unique()), key="t2_f_equipo")
+    with ft3:
+        f_activo = st.multiselect("Activo", sorted(tabla["Activo"].unique()), key="t2_f_activo")
+    with ft4:
+        f_entrega_min = st.number_input("Tasa entrega % mín.", min_value=0, max_value=100, value=0, step=5, key="t2_f_entrega")
+    with ft5:
+        f_respuesta_min = st.number_input("Tasa respuesta % mín.", min_value=0, max_value=100, value=0, step=5, key="t2_f_resp")
+
+    if f_nombre:
+        tabla = tabla[tabla["Push / Campaña"].str.contains(f_nombre, case=False, na=False)]
+    if f_equipo:
+        tabla = tabla[tabla["Equipo dueño"].isin(f_equipo)]
+    if f_activo:
+        tabla = tabla[tabla["Activo"].isin(f_activo)]
+    if f_entrega_min:
+        tabla = tabla[tabla["tasa_entrega_%"] >= f_entrega_min]
+    if f_respuesta_min:
+        tabla = tabla[tabla["tasa_respuesta_%"] >= f_respuesta_min]
+
     st.dataframe(
-        tabla[cols_tabla], use_container_width=True, hide_index=True,
+        tabla, use_container_width=True, hide_index=True,
         column_config={
             "Costo estimado (USD)": st.column_config.NumberColumn(format="$%.2f"),
             "tasa_entrega_%": st.column_config.ProgressColumn("Tasa entrega %", min_value=0, max_value=100, format="%.1f%%"),
@@ -949,7 +975,7 @@ with tab2:
                      "cada 3 horas genera una tanda nueva cada vez que corre)."),
         }
     )
-    boton_descarga(tabla[cols_tabla], "costo_por_push.csv", "t2_dl_tabla")
+    boton_descarga(tabla, "costo_por_push.csv", "t2_dl_tabla")
     st.caption(
         "💡 'Conversaciones facturables (est.)' depende del modelo de costo elegido arriba (⚙️ Configuración): "
         "todo lo entregado, o solo lo que generó respuesta. 'Activo' viene del catálogo de plantillas "
