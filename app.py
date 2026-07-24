@@ -1184,6 +1184,53 @@ with tab2:
                     )
                 boton_descarga(res_df, "verificacion_plantillas_dwh.csv", "t2_dl_verificar")
 
+    # ── Detector de campañas nuevas no catalogadas ──
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown('<span class="sec purple">🆕 Detectar campañas nuevas no catalogadas</span>', unsafe_allow_html=True)
+    st.caption(
+        "El resto del dashboard solo muestra campañas que ya están en el catálogo de plantillas — "
+        "así sacamos a Ventas/Marketing, pero eso también esconde cualquier push NUEVO que aún no "
+        "hayas agregado al Excel del catálogo. Esta herramienta consulta el DWH directo, sin ese "
+        "filtro, para que puedas verlas y decidir cuáles agregar."
+    )
+    if not _dwh_ok:
+        st.markdown('<div class="alrt">Data Warehouse no conectado ahora mismo.</div>', unsafe_allow_html=True)
+    else:
+        dias_nuevas = st.number_input("Buscar campañas creadas en los últimos... (días)", min_value=1,
+                                       value=7, step=1, key="t2_dias_nuevas")
+        if st.button("Buscar campañas nuevas", key="t2_buscar_nuevas_btn"):
+            sql_nuevas = f"""
+                SELECT poll_name, sum(sent) AS enviados, min(day) AS primera_fecha, max(day) AS ultima_fecha
+                FROM client_analytics.fact_deployment_daily
+                WHERE day >= today() - {int(dias_nuevas)} AND poll_name != '' AND poll_name IS NOT NULL
+                GROUP BY poll_name ORDER BY primera_fecha DESC
+            """
+            nuevas_df = dwh_query(sql_nuevas)
+            if nuevas_df is None or nuevas_df.empty:
+                st.info(f"No hay campañas con envíos en los últimos {dias_nuevas} días.")
+            else:
+                nuevas_df["¿Está en el catálogo?"] = nuevas_df["poll_name"].apply(
+                    lambda n: "✅ Sí" if _es_campana_atc(n) else "❓ No está — revisar"
+                )
+                nuevas_df = nuevas_df.rename(columns={
+                    "poll_name": "Campaña", "enviados": "Enviados", "primera_fecha": "Primer envío",
+                    "ultima_fecha": "Último envío"
+                })
+                no_catalogadas = nuevas_df[nuevas_df["¿Está en el catálogo?"].str.contains("No está")]
+                st.dataframe(nuevas_df, use_container_width=True, hide_index=True)
+                boton_descarga(nuevas_df, "campanas_nuevas_dwh.csv", "t2_dl_nuevas")
+                if len(no_catalogadas):
+                    st.markdown(
+                        f'<div class="alrt">⚠️ {len(no_catalogadas)} campaña(s) con envíos reales en los '
+                        f'últimos {dias_nuevas} días que <b>no están en el catálogo Excel</b>: '
+                        f'{", ".join(no_catalogadas["Campaña"])}. Revisa si son de Consultoría/ATC (para '
+                        f'agregarlas al catálogo) o de Ventas/Marketing (para ignorarlas, es esperable '
+                        f'que aparezcan acá).</div>', unsafe_allow_html=True
+                    )
+                else:
+                    st.markdown('<div class="good">✅ Todas las campañas de este período ya están en el '
+                                'catálogo.</div>', unsafe_allow_html=True)
+
 
 # ────────────────────────────────────────────────────────────────
 # TAB 3 · CONVERSACIONES
