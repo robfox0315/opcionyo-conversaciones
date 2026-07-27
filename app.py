@@ -345,25 +345,36 @@ def dwh_respuesta_push(poll_name: str, dias: int = 180):
 
 @st.cache_data(ttl=300, show_spinner="⏳ Consultando qué responden los usuarios…")
 def dwh_respuestas_hsm(poll_name: str, dias: int = 180):
-    """Qué contestan los usuarios (botones/texto) dentro del flujo de un push específico.
-    fact_hsm_responses se filtra por poll_id, así que primero lo buscamos en fact_sessions."""
+    """Qué contestan los usuarios (botones/texto) dentro del flujo de un push específico,
+    desglosado por hsm_name (para poder ver 'primer mensaje' vs 'segundo mensaje' por separado).
+    fact_hsm_responses se filtra por poll_id, así que primero lo buscamos en fact_sessions.
+    OJO: el LIMIT del lookup de poll_id estaba en 20 y cortaba instancias reales — se subió
+    a 2000 para no perder datos (era la causa de que la Sección 2 no cuadrara con la 1)."""
     nombre_esc = poll_name.replace("'", "''")
     sql_ids = f"""
         SELECT DISTINCT poll_id FROM client_analytics.fact_sessions
         WHERE poll_name = '{nombre_esc}' AND created_at >= now() - INTERVAL {int(dias)} DAY
-        LIMIT 20
+        LIMIT 2000
     """
     ids_df = dwh_query(sql_ids)
     if ids_df is None or ids_df.empty:
-        return None
+        return None, None
     ids = ",".join(str(int(i)) for i in ids_df["poll_id"])
     sql = f"""
         SELECT hsm_name, answer_text, count() AS respuestas
         FROM client_analytics.fact_hsm_responses
         WHERE poll_id IN ({ids}) AND response_date >= now() - INTERVAL {int(dias)} DAY
-        GROUP BY hsm_name, answer_text ORDER BY respuestas DESC LIMIT 30
+        GROUP BY hsm_name, answer_text ORDER BY hsm_name, respuestas DESC
     """
-    return dwh_query(sql)
+    detalle = dwh_query(sql)
+
+    sql_total = f"""
+        SELECT count(DISTINCT survey_user_id) AS usuarios_unicos, count() AS respuestas_totales
+        FROM client_analytics.fact_hsm_responses
+        WHERE poll_id IN ({ids}) AND response_date >= now() - INTERVAL {int(dias)} DAY
+    """
+    total = dwh_query(sql_total)
+    return detalle, total
 
 
 @st.cache_data(ttl=300, show_spinner="⏳ Consultando dónde termina la conversación…")
@@ -375,6 +386,20 @@ def dwh_estado_final_push(poll_name: str, dias: int = 180):
         FROM client_analytics.fact_sessions
         WHERE poll_name = '{nombre_esc}' AND created_at >= now() - INTERVAL {int(dias)} DAY
         GROUP BY status ORDER BY n DESC
+    """
+    return dwh_query(sql)
+
+
+@st.cache_data(ttl=300, show_spinner="⏳ Verificando actividad real en Treble…")
+def dwh_actividad_reciente(poll_name: str):
+    """¿Este push mandó algo de verdad, y cuándo fue la última vez? La mejor señal disponible
+    de si está realmente activo en Treble ahora mismo — el DWH no tiene un flag 'activo/inactivo'
+    explícito por poll, así que usamos la fecha del último envío real como proxy."""
+    nombre_esc = poll_name.replace("'", "''")
+    sql = f"""
+        SELECT sum(sent) AS enviados_365d, max(day) AS ultimo_envio, min(day) AS primer_envio
+        FROM client_analytics.fact_deployment_daily
+        WHERE poll_name = '{nombre_esc}' AND day >= today() - 365
     """
     return dwh_query(sql)
 
@@ -1846,20 +1871,77 @@ with tab7:
                             f"{safe_pct(entregados - respondidos, entregados)}% de entregados", "dark"),
                         unsafe_allow_html=True)
 
-            # ── 2) Qué contestan (fact_hsm_responses) ──
+            # ── ¿El catálogo dice lo mismo que Treble? Verificación de Activo/Inactivo real ──
+            estado_catalogo_push = cat[cat["conversacion"] == push_pick]
+            estado_catalogo_txt = estado_catalogo_push.iloc[0]["estado"] if len(estado_catalogo_push) else "?"
+            act_df = dwh_actividad_reciente(push_pick)
+            if act_df is not None and not act_df.empty and pd.notna(act_df["ultimo_envio"].iloc[0]):
+                ultimo_envio = pd.to_datetime(act_df["ultimo_envio"].iloc[0]).date()
+                dias_desde_ultimo = (pd.Timestamp.now().date() - ultimo_envio).days
+                esta_activo_real = dias_desde_ultimo <= 30
+                catalogo_dice_activo = estado_catalogo_txt in ("Push Activo", "Manual activo")
+                if esta_activo_real != catalogo_dice_activo:
+                    st.markdown(
+                        f'<div class="crit">🚨 <b>El catálogo dice "{estado_catalogo_txt}" pero Treble '
+                        f'muestra otra cosa:</b> el último envío real fue el {ultimo_envio} '
+                        f'({dias_desde_ultimo} días atrás) — {"sí está mandando en los últimos 30 días" if esta_activo_real else "no manda nada hace más de 30 días"}. '
+                        f'Actualiza el estado en el catálogo para que refleje la realidad.</div>',
+                        unsafe_allow_html=True
+                    )
+                else:
+                    st.caption(f"✅ Estado consistente: catálogo dice '{estado_catalogo_txt}', y el último "
+                               f"envío real en Treble fue el {ultimo_envio} ({dias_desde_ultimo} días atrás).")
+
+            # ── 2) Qué contestan (fact_hsm_responses) — desglosado por paso, y reconciliado ──
             st.markdown("<br>", unsafe_allow_html=True)
-            st.markdown('<span class="sec amb">2️⃣ ¿Qué contestan los que sí responden?</span>', unsafe_allow_html=True)
-            hsm_df = dwh_respuestas_hsm(push_pick)
+            st.markdown('<span class="sec amb">2️⃣ ¿Qué contestan los que sí responden? (por paso del flujo)</span>',
+                        unsafe_allow_html=True)
+            hsm_df, hsm_total = dwh_respuestas_hsm(push_pick)
             if hsm_df is None or hsm_df.empty:
                 st.info("Este push no generó respuestas estructuradas (fact_hsm_responses vacío) — puede "
                         "ser un aviso de una sola vía sin botones, o las respuestas fueron texto libre no "
                         "clasificado.")
             else:
-                fig = px.bar(hsm_df.sort_values("respuestas").tail(15), x="respuestas", y="answer_text",
+                # Reconciliación explícita contra la Sección 1 — si no cuadra, lo decimos, no lo escondemos.
+                usuarios_unicos_hsm = int(hsm_total["usuarios_unicos"].iloc[0]) if hsm_total is not None and not hsm_total.empty else None
+                if usuarios_unicos_hsm is not None:
+                    diff = usuarios_unicos_hsm - respondidos
+                    if abs(diff) <= max(1, round(respondidos * 0.02)):
+                        st.markdown(
+                            f'<div class="good">✅ Cuadra: {usuarios_unicos_hsm:,} usuarios únicos con '
+                            f'respuesta estructurada en fact_hsm_responses vs. {respondidos:,} "respondidos" '
+                            f'en fact_deployment_status (diferencia de {diff:+,}, dentro de lo esperable por '
+                            f'redondeo/ventana de tiempo).</div>', unsafe_allow_html=True
+                        )
+                    else:
+                        st.markdown(
+                            f'<div class="alrt">⚠️ No cuadra exacto: {usuarios_unicos_hsm:,} usuarios únicos '
+                            f'en fact_hsm_responses vs. {respondidos:,} "respondidos" en fact_deployment_status '
+                            f'(diferencia de {diff:+,}). Motivo más probable: fact_deployment_status marca '
+                            f'"respondido" con cualquier mensaje que llegue de vuelta (incluido texto libre '
+                            f'que no matchea ningún botón), mientras que fact_hsm_responses solo registra '
+                            f'respuestas que sí calzaron con una opción estructurada de la plantilla. No es '
+                            f'un error del dashboard — son dos definiciones distintas de "respondió".</div>',
+                            unsafe_allow_html=True
+                        )
+
+                pasos_disponibles = sorted(hsm_df["hsm_name"].unique())
+                if len(pasos_disponibles) > 1:
+                    st.caption(f"Este flujo tiene {len(pasos_disponibles)} mensaje(s)/paso(s) distintos con "
+                               f"respuesta registrada — elige uno para ver el detalle, o mira el total abajo.")
+                    paso_pick = st.selectbox("Ver respuestas de:", ["Todos los pasos"] + pasos_disponibles, key="t7_paso")
+                else:
+                    paso_pick = "Todos los pasos"
+
+                hsm_mostrar = hsm_df if paso_pick == "Todos los pasos" else hsm_df[hsm_df["hsm_name"] == paso_pick]
+                resumen_paso = hsm_mostrar.groupby("answer_text")["respuestas"].sum().reset_index().sort_values("respuestas")
+                fig = px.bar(resumen_paso.tail(15), x="respuestas", y="answer_text",
                              orientation="h", color_discrete_sequence=[OY_AMBER])
-                fig.update_layout(xaxis_title="Respuestas", yaxis_title="")
+                fig.update_layout(xaxis_title="Respuestas", yaxis_title="",
+                                   title=f"{paso_pick}" if paso_pick != "Todos los pasos" else None)
                 st.plotly_chart(sfig(fig, 380), use_container_width=True)
                 boton_descarga(hsm_df, f"respuestas_{push_pick}.csv", "t7_dl_hsm")
+                st.caption(f"Total de respuestas mostradas: {int(hsm_mostrar['respuestas'].sum()):,}")
 
             # ── 3) Dónde termina (fact_sessions status) ──
             st.markdown("<br>", unsafe_allow_html=True)
