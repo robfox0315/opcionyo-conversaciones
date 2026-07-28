@@ -471,28 +471,25 @@ def tarifa_por_tramo(volumen: float) -> float:
 # ══════════════════════════════════════════════════════════════
 @st.cache_data(ttl=300, show_spinner="⏳ Cargando reporte de pushes…")
 def load_general_report():
-    # IMPORTANTE: preferimos el CSV para Pushes, NO el DWH. Auditoría confirmada:
-    # poll_name viene vacío en 40.7% de las filas de fact_deployment_daily (7.3% del
-    # volumen enviado), y los nombres que SÍ vienen poblados son casi todos campañas
-    # de Ventas/Marketing, no las plantillas de ATC que necesitamos identificar. El CSV
-    # (que usa el reporte nativo de Treble, ya agrupado por plantilla) es más confiable
-    # para esto. Si en el futuro encontramos una tabla que resuelva el nombre real por
-    # poll_id (fact_whatsapp_links o join con dim_hsm), volvemos a priorizar el DWH acá.
-    fuente = "csv"
-    path = find_data_file("general_report.csv")
-    if path:
+    # Preferimos el DWH en vivo. Los dos motivos que antes nos hacían evitarlo ya están
+    # resueltos en otras capas: (1) las filas con poll_name vacío se excluyen directo en
+    # el SQL de dwh_general_report(), y (2) las campañas de Ventas/Marketing se filtran
+    # más abajo con el filtro global ATC-only (_es_campana_atc). Si el DWH falla por
+    # cualquier motivo, cae automáticamente al CSV de respaldo.
+    df = dwh_general_report()
+    fuente = "dwh"
+    if df is None:
+        fuente = "csv"
+        path = find_data_file("general_report.csv")
+        if not path:
+            st.error("❌ No se encontró data/general_report.csv Y no hay conexión al Data Warehouse. "
+                      "Necesito al menos una de las dos fuentes.")
+            st.stop()
         try:
             df = pd.read_csv(path)
             df["date"] = pd.to_datetime(df["date"], errors="coerce")
         except Exception as e:
             st.error(f"No se pudo leer general_report.csv: {e}")
-            st.stop()
-    else:
-        df = dwh_general_report()
-        fuente = "dwh"
-        if df is None:
-            st.error("❌ No se encontró data/general_report.csv Y no hay conexión al Data Warehouse. "
-                      "Necesito al menos una de las dos fuentes.")
             st.stop()
     if "name_clean" not in df.columns:
         df["name_clean"] = (df["name"]
