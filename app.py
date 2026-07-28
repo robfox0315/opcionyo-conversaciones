@@ -840,15 +840,7 @@ with tab1:
 
     tarifas_activas = sorted(gr_costo["tarifa_aplicada"].unique()) if len(gr_costo) else []
     tarifas_txt = ", ".join(fmt_usd(t) for t in tarifas_activas) if tarifas_activas else "—"
-    fuente_tarifa = ("tramos reales de Treble (auditados)" if tarifa_manual is None
-                      else f"tarifa fija manual de {fmt_usd(tarifa_manual)}")
-    st.markdown(
-        f'<div class="info">💡 <b>Modelo de costo activo:</b> {modelo_costo.lower()}, usando '
-        f'{fuente_tarifa}. Tarifa(s) por conversación en el período: {tarifas_txt}. '
-        f'Ver auditoría completa y validación contra cifras reales en la pestaña '
-        f'"📤 Pushes Automáticos & Costo".</div>',
-        unsafe_allow_html=True
-    )
+    st.caption(f"💰 Tarifa aplicada: {tarifas_txt} · detalle completo en 📤 Pushes Automáticos & Costo")
 
     # ── Comparador de períodos (mes vs. mes, o semana vs. semana) ──
     st.markdown("<br>", unsafe_allow_html=True)
@@ -1481,11 +1473,9 @@ with tab6:
     st.markdown('<span class="sec">🌳 Dónde se rompe la conversación</span>', unsafe_allow_html=True)
 
     # ── Sección en vivo: lo que SÍ se puede sacar del DWH directamente ──
-    st.markdown('<span class="sec blue">🟢 En vivo — respuesta a plantillas HSM (Data Warehouse)</span>',
-                unsafe_allow_html=True)
+    st.markdown('<span class="sec blue">🟢 En vivo — respuesta a plantillas HSM</span>', unsafe_allow_html=True)
     if not _dwh_ok:
-        st.markdown('<div class="alrt">Data Warehouse no conectado ahora mismo — esta sección se activa sola '
-                    'en cuanto la conexión esté disponible.</div>', unsafe_allow_html=True)
+        st.caption("Data Warehouse no conectado.")
     else:
         sql_hsm = """
             SELECT hsm_name, count() AS respuestas, count(DISTINCT survey_user_id) AS usuarios_unicos
@@ -1495,39 +1485,23 @@ with tab6:
         """
         df_hsm = dwh_query(sql_hsm)
         if df_hsm is None or df_hsm.empty:
-            st.info("La consulta al DWH no devolvió datos de respuestas HSM para los últimos 30 días.")
+            st.caption("Sin datos de respuestas HSM en los últimos 30 días.")
         else:
             fig = px.bar(df_hsm.sort_values("respuestas"), x="respuestas", y="hsm_name", orientation="h",
                          color_discrete_sequence=[OY_BLUE])
             fig.update_layout(xaxis_title="Respuestas de usuarios (30 días)", yaxis_title="")
             st.plotly_chart(sfig(fig, 360), use_container_width=True)
-        st.caption(
-            "Esto viene de `fact_hsm_responses`, en vivo. Pero ojo: esta tabla **solo tiene una fila cuando "
-            "el usuario SÍ respondió** — no registra quién se quedó en silencio. Confirmado con el equipo: "
-            "el Data Warehouse no tiene la navegación nodo-a-nodo de un flujo, así que el análisis completo "
-            "de abajo (con el export de Treble) sigue siendo la fuente principal."
-        )
+            st.caption("Solo respuestas registradas — el detalle completo de silencios está abajo.")
 
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown('<span class="sec">📄 Análisis completo — export de árbol de Treble</span>', unsafe_allow_html=True)
 
     if arbol is None:
         st.markdown(
-            '<div class="alrt">⚠️ No se encontró <code>data/arbol_conversacion.csv</code>. '
-            'Esta pestaña necesita el export de árbol de conversación de Treble (reporte '
-            '"rpt_treble_arbol...csv") para funcionar. Súbelo a la carpeta <code>data/</code> del '
-            'repo con ese nombre exacto.</div>', unsafe_allow_html=True
+            '<div class="alrt">⚠️ Falta <code>data/arbol_conversacion.csv</code> en el repositorio.</div>',
+            unsafe_allow_html=True
         )
     else:
-        st.markdown(
-            '<div class="info">💡 <b>Qué es "fuga real":</b> Treble marca como "No avanzó" a '
-            'cualquiera que no siga una plantilla, incluso en avisos de una sola vía donde nadie '
-            'espera respuesta (eso es normal, no es un problema). Este dashboard filtra eso: solo '
-            'cuenta como <b>fuga real</b> cuando el cliente SÍ tenía una opción real de responder o '
-            'elegir algo, y aun así se quedó en silencio. Eso es lo que realmente vale la pena '
-            'revisar.</div>', unsafe_allow_html=True
-        )
-
         fuga_real_df = arbol[arbol["fuga_real"]]
         total_fuga_real = int(fuga_real_df["N Clientes"].sum())
         n_puntos = fuga_real_df["Origen ID"].nunique()
@@ -1546,6 +1520,7 @@ with tab6:
             top_row = rank_global.iloc[0]
             c3.markdown(kpi("Plantilla con más fuga", f"{int(top_row['fuga_real']):,}",
                             top_row["Plantilla"][:30], "dark"), unsafe_allow_html=True)
+        st.caption("Fuga real = cliente tenía una opción para responder y no lo hizo (excluye avisos de una sola vía).")
 
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown('<span class="sec red">📊 Ranking de plantillas por volumen de fuga real</span>', unsafe_allow_html=True)
@@ -1588,11 +1563,8 @@ with tab6:
             vol_msg = int(filas_msg["N Clientes"].sum())
             rango_pct = f"{pct_lo:.0f}%" if pct_lo == pct_hi else f"{pct_lo:.0f}–{pct_hi:.0f}%"
             st.markdown(
-                f'<div class="crit">⚠️ <b>"{plantilla_concentrada}"</b> es el quiebre más grande y concentrado: '
-                f'el mensaje <i>"{_extracto(fila_max["Nodo Origen"])}"</i> se queda sin respuesta en el '
-                f'<b>{rango_pct} de los casos</b> ({vol_msg:,} clientes), a pesar de que sí hay gente que '
-                f'responde cuando se le pregunta. Vale la pena revisar el copy, agregar un botón de respuesta '
-                f'rápida, o ajustar el tiempo antes de escalar a un agente humano.</div>', unsafe_allow_html=True
+                f'<div class="crit">⚠️ <b>"{plantilla_concentrada}"</b>: <i>"{_extracto(fila_max["Nodo Origen"], 90)}"</i> '
+                f'sin respuesta en <b>{rango_pct}</b> de los casos ({vol_msg:,} clientes).</div>', unsafe_allow_html=True
             )
 
             # Hallazgo 2: el flujo con fricción más repartida (más puntos de quiebre distintos)
@@ -1601,16 +1573,11 @@ with tab6:
                 fila_disperso = candidatos.sort_values("puntos_de_quiebre", ascending=False).iloc[0]
                 if fila_disperso["puntos_de_quiebre"] >= 5:
                     plantilla_disperso = fila_disperso["Plantilla"]
-                    primer_paso = fuga_real_df[fuga_real_df["Plantilla"] == plantilla_disperso].sort_values(
-                        "N Clientes", ascending=False).iloc[0]
                     st.markdown(
-                        f'<div class="alrt">El flujo <b>"{plantilla_disperso}"</b> tiene fuga real repartida en '
-                        f'<b>{int(fila_disperso["puntos_de_quiebre"])} puntos distintos</b> '
-                        f'({int(fila_disperso["fuga_real"]):,} clientes en total) — no hay un solo quiebre '
-                        f'gigante, sino fricción distribuida en varios pasos. El punto más grande dentro de '
-                        f'este flujo es <i>"{_extracto(primer_paso["Nodo Origen"], 100)}"</i> '
-                        f'({primer_paso["Pct Del Nodo"]:.0f}% de quienes lo reciben no eligen ninguna '
-                        f'opción).</div>', unsafe_allow_html=True
+                        f'<div class="alrt">📊 <b>"{plantilla_disperso}"</b>: fricción repartida en '
+                        f'<b>{int(fila_disperso["puntos_de_quiebre"])} puntos</b> '
+                        f'({int(fila_disperso["fuga_real"]):,} clientes) — no un quiebre único, sino '
+                        f'varios pasos con fuga.</div>', unsafe_allow_html=True
                     )
 
         st.markdown("<br>", unsafe_allow_html=True)
@@ -1731,14 +1698,7 @@ with tab6:
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown('<span class="sec">📋 Resumen histórico completo — todas las plantillas</span>',
                     unsafe_allow_html=True)
-        st.markdown(
-            '<div class="alrt">⚠️ <b>Sobre el filtro por fecha:</b> este export de Treble es una '
-            '<b>foto fija</b> — no trae fecha por fila, así que no puedo filtrar este resumen por período '
-            'como en el resto del dashboard. Para tener una vista histórica real (esta semana vs. la '
-            'pasada, por ejemplo) necesitamos que Treble genere este mismo reporte periódicamente '
-            '(ej. cada lunes) y yo lo comparo entre exports — dime si quieres que armemos ese proceso.</div>',
-            unsafe_allow_html=True
-        )
+        st.caption("Foto fija del export de Treble — sin fecha por fila, no filtrable por período.")
 
         resumen_completo = arbol.groupby("Plantilla").agg(
             instancias=("Poll ID", "nunique"),
@@ -1785,33 +1745,20 @@ with tab6:
 # TAB 7 · PUSH → DÓNDE SE PIERDE LA RESPUESTA
 # ────────────────────────────────────────────────────────────────
 with tab7:
-    st.markdown('<span class="sec">🔎 De un push a por qué no responden — todo en un solo lugar</span>',
-                unsafe_allow_html=True)
-    st.markdown(
-        '<div class="info">💡 Para responder "¿Recordatorio Sesión en 28hs tiene 50% de respuesta, pero '
-        'qué pasa adentro de esa conversación, dónde se corta?" — esta pestaña junta 3 fuentes en vivo: '
-        '<b>cuánta gente respondió de verdad</b> (fact_deployment_status), '
-        '<b>qué contestaron</b> (fact_hsm_responses) y '
-        '<b>en qué terminó la conversación</b> (fact_sessions). Si además ese push está en el export del '
-        'árbol de Treble, mostramos el mapa completo paso a paso.</div>', unsafe_allow_html=True
-    )
+    st.markdown('<span class="sec">🔎 Push → Dónde se pierde la respuesta</span>', unsafe_allow_html=True)
+    st.caption("Cruza 3 fuentes en vivo: respuesta real, qué contestan, y en qué termina la conversación.")
 
     if not _dwh_ok:
-        st.markdown('<div class="alrt">Data Warehouse no conectado ahora mismo — esta pestaña necesita '
-                    'conexión en vivo para funcionar.</div>', unsafe_allow_html=True)
+        st.markdown('<div class="alrt">Data Warehouse no conectado.</div>', unsafe_allow_html=True)
     else:
         push_opciones = sorted(cat[cat["activo"]]["conversacion"].unique())
         push_pick = st.selectbox("Elegí un push para analizar", push_opciones, key="t7_push")
 
         # ── 1) Tasa de respuesta real, granular (fact_deployment_status) ──
-        st.markdown('<span class="sec blue">1️⃣ ¿Cuánta gente respondió de verdad?</span>', unsafe_allow_html=True)
+        st.markdown('<span class="sec blue">1️⃣ Respuesta real</span>', unsafe_allow_html=True)
         resp_df = dwh_respuesta_push(push_pick)
         if resp_df is None or resp_df.empty or resp_df["enviados"].iloc[0] == 0:
-            st.markdown(
-                f'<div class="alrt">No hay envíos de "{push_pick}" registrados en el Data Warehouse en los '
-                f'últimos 180 días. Si esperabas datos acá, probá primero en la pestaña 📤 Pushes con la '
-                f'herramienta "Verificar si una plantilla se envió de verdad".</div>', unsafe_allow_html=True
-            )
+            st.caption(f"Sin envíos de \"{push_pick}\" en los últimos 180 días.")
         else:
             enviados = int(resp_df["enviados"].iloc[0])
             entregados = int(resp_df["entregados"].iloc[0])
@@ -1826,7 +1773,7 @@ with tab7:
                             f"{safe_pct(entregados - respondidos, entregados)}% de entregados", "dark"),
                         unsafe_allow_html=True)
 
-            # ── ¿El catálogo dice lo mismo que Treble? Verificación de Activo/Inactivo real ──
+            # ── ¿El catálogo dice lo mismo que Treble? ──
             estado_catalogo_push = cat[cat["conversacion"] == push_pick]
             estado_catalogo_txt = estado_catalogo_push.iloc[0]["estado"] if len(estado_catalogo_push) else "?"
             act_df = dwh_actividad_reciente(push_pick)
@@ -1837,54 +1784,38 @@ with tab7:
                 catalogo_dice_activo = estado_catalogo_txt in ("Push Activo", "Manual activo")
                 if esta_activo_real != catalogo_dice_activo:
                     st.markdown(
-                        f'<div class="crit">🚨 <b>El catálogo dice "{estado_catalogo_txt}" pero Treble '
-                        f'muestra otra cosa:</b> el último envío real fue el {ultimo_envio} '
-                        f'({dias_desde_ultimo} días atrás) — {"sí está mandando en los últimos 30 días" if esta_activo_real else "no manda nada hace más de 30 días"}. '
-                        f'Actualiza el estado en el catálogo para que refleje la realidad.</div>',
+                        f'<div class="crit">🚨 Catálogo dice "{estado_catalogo_txt}" — último envío real: '
+                        f'{ultimo_envio} ({dias_desde_ultimo}d atrás). Actualizar catálogo.</div>',
                         unsafe_allow_html=True
                     )
                 else:
-                    st.caption(f"✅ Estado consistente: catálogo dice '{estado_catalogo_txt}', y el último "
-                               f"envío real en Treble fue el {ultimo_envio} ({dias_desde_ultimo} días atrás).")
+                    st.caption(f"✅ Consistente — último envío: {ultimo_envio} ({dias_desde_ultimo}d atrás).")
 
             # ── 2) Qué contestan (fact_hsm_responses) — desglosado por paso, y reconciliado ──
             st.markdown("<br>", unsafe_allow_html=True)
-            st.markdown('<span class="sec amb">2️⃣ ¿Qué contestan los que sí responden? (por paso del flujo)</span>',
-                        unsafe_allow_html=True)
+            st.markdown('<span class="sec amb">2️⃣ Qué contestan (por paso)</span>', unsafe_allow_html=True)
             hsm_df, hsm_total = dwh_respuestas_hsm(push_pick)
             if hsm_df is None or hsm_df.empty:
-                st.info("Este push no generó respuestas estructuradas (fact_hsm_responses vacío) — puede "
-                        "ser un aviso de una sola vía sin botones, o las respuestas fueron texto libre no "
-                        "clasificado.")
+                st.caption("Sin respuestas estructuradas (aviso de una sola vía, o texto libre sin clasificar).")
             else:
                 # Reconciliación explícita contra la Sección 1 — si no cuadra, lo decimos, no lo escondemos.
                 usuarios_unicos_hsm = int(hsm_total["usuarios_unicos"].iloc[0]) if hsm_total is not None and not hsm_total.empty else None
                 if usuarios_unicos_hsm is not None:
                     diff = usuarios_unicos_hsm - respondidos
                     if abs(diff) <= max(1, round(respondidos * 0.02)):
-                        st.markdown(
-                            f'<div class="good">✅ Cuadra: {usuarios_unicos_hsm:,} usuarios únicos con '
-                            f'respuesta estructurada en fact_hsm_responses vs. {respondidos:,} "respondidos" '
-                            f'en fact_deployment_status (diferencia de {diff:+,}, dentro de lo esperable por '
-                            f'redondeo/ventana de tiempo).</div>', unsafe_allow_html=True
-                        )
+                        st.caption(f"✅ Cuadra: {usuarios_unicos_hsm:,} vs. {respondidos:,} respondidos (diferencia {diff:+,}).")
                     else:
                         st.markdown(
-                            f'<div class="alrt">⚠️ No cuadra exacto: {usuarios_unicos_hsm:,} usuarios únicos '
-                            f'en fact_hsm_responses vs. {respondidos:,} "respondidos" en fact_deployment_status '
-                            f'(diferencia de {diff:+,}). Motivo más probable: fact_deployment_status marca '
-                            f'"respondido" con cualquier mensaje que llegue de vuelta (incluido texto libre '
-                            f'que no matchea ningún botón), mientras que fact_hsm_responses solo registra '
-                            f'respuestas que sí calzaron con una opción estructurada de la plantilla. No es '
-                            f'un error del dashboard — son dos definiciones distintas de "respondió".</div>',
+                            f'<div class="alrt">⚠️ {usuarios_unicos_hsm:,} usuarios únicos vs. {respondidos:,} '
+                            f'"respondidos" (diferencia {diff:+,}) — fact_deployment_status cuenta cualquier '
+                            f'respuesta, fact_hsm_responses solo las que calzan con un botón.</div>',
                             unsafe_allow_html=True
                         )
 
                 pasos_disponibles = sorted(hsm_df["hsm_name"].unique())
                 if len(pasos_disponibles) > 1:
-                    st.caption(f"Este flujo tiene {len(pasos_disponibles)} mensaje(s)/paso(s) distintos con "
-                               f"respuesta registrada — elige uno para ver el detalle, o mira el total abajo.")
-                    paso_pick = st.selectbox("Ver respuestas de:", ["Todos los pasos"] + pasos_disponibles, key="t7_paso")
+                    paso_pick = st.selectbox(f"{len(pasos_disponibles)} pasos con respuesta — ver:",
+                                              ["Todos los pasos"] + pasos_disponibles, key="t7_paso")
                 else:
                     paso_pick = "Todos los pasos"
 
@@ -1896,14 +1827,13 @@ with tab7:
                                    title=f"{paso_pick}" if paso_pick != "Todos los pasos" else None)
                 st.plotly_chart(sfig(fig, 380), use_container_width=True)
                 boton_descarga(hsm_df, f"respuestas_{push_pick}.csv", "t7_dl_hsm")
-                st.caption(f"Total de respuestas mostradas: {int(hsm_mostrar['respuestas'].sum()):,}")
 
             # ── 3) Dónde termina (fact_sessions status) ──
             st.markdown("<br>", unsafe_allow_html=True)
-            st.markdown('<span class="sec purple">3️⃣ ¿En qué termina la conversación?</span>', unsafe_allow_html=True)
+            st.markdown('<span class="sec purple">3️⃣ Dónde termina la conversación</span>', unsafe_allow_html=True)
             estado_df = dwh_estado_final_push(push_pick)
             if estado_df is None or estado_df.empty:
-                st.info("No hay datos de estado final para este push en fact_sessions.")
+                st.caption("Sin datos de estado final.")
             else:
                 fig = px.pie(estado_df, names="status", values="n", hole=.5, color_discrete_sequence=COLOR_SEQ)
                 st.plotly_chart(sfig(fig, 340), use_container_width=True)
@@ -1911,15 +1841,13 @@ with tab7:
                 if "HumanHandover" in estado_df["status"].values:
                     pct_agente = safe_pct(estado_df[estado_df["status"] == "HumanHandover"]["n"].iloc[0],
                                            estado_df["n"].sum())
-                    st.caption(f"💡 {pct_agente}% de las conversaciones de este push terminan escaladas a "
-                               f"un agente humano.")
+                    st.caption(f"{pct_agente}% escala a agente humano.")
 
         # ── 4) Árbol completo, si este push está en el export de Treble ──
         st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown('<span class="sec red">4️⃣ Mapa completo paso a paso (si está disponible)</span>',
-                     unsafe_allow_html=True)
+        st.markdown('<span class="sec red">4️⃣ Mapa completo paso a paso</span>', unsafe_allow_html=True)
         if arbol is None:
-            st.info("No hay export de árbol de conversación cargado (data/arbol_conversacion.csv).")
+            st.caption("Sin export de árbol de conversación cargado.")
         else:
             fila_cat = cat[cat["conversacion"] == push_pick]
             plantilla_hsm = fila_cat.iloc[0]["plantilla"] if len(fila_cat) else None
@@ -1937,14 +1865,9 @@ with tab7:
                     break
 
             if not match_arbol:
-                st.markdown(
-                    '<div class="alrt">Este push específico no está en el export del árbol de Treble bajo '
-                    'un nombre reconocible — usa las secciones 1-3 de arriba (en vivo) como el mejor detalle '
-                    'disponible, o revisa la pestaña 🌳 Árbol de Conversación por si aparece con otro nombre.</div>',
-                    unsafe_allow_html=True
-                )
+                st.caption("Este push no está en el export del árbol bajo un nombre reconocible.")
             else:
-                st.success(f"✅ Encontrado en el árbol como: **{match_arbol}** — mostrando el mapa completo.")
+                st.caption(f"✅ Encontrado como: **{match_arbol}**")
                 sub_full7 = arbol[arbol["Plantilla"] == match_arbol].copy()
                 poll_top7 = sub_full7.groupby("Poll ID")["N Clientes"].sum().idxmax()
                 sub_full7 = sub_full7[sub_full7["Poll ID"] == poll_top7].copy()
@@ -1987,8 +1910,7 @@ with tab7:
                     st.plotly_chart(sfig(sankey7, 500), use_container_width=True)
                     leyenda7 = pd.DataFrame([{"Código": codigo7[n], "Mensaje completo": texto7[n]} for n in nodos7]).drop_duplicates("Código")
                     st.dataframe(leyenda7, use_container_width=True, hide_index=True, height=260)
-                    st.caption("👉 Para el detalle completo de puntos de quiebre de este flujo, ve a la "
-                               "pestaña 🌳 Árbol de Conversación y elegí este mismo flujo en el selector.")
+                    st.caption("Detalle completo de puntos de quiebre en 🌳 Árbol de Conversación.")
 
 
 st.markdown("<br><hr>", unsafe_allow_html=True)
