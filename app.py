@@ -404,6 +404,19 @@ def dwh_actividad_reciente(poll_name: str):
     return dwh_query(sql)
 
 
+@st.cache_data(ttl=300, show_spinner="⏳ Verificando actividad real de todos los pushes en Treble…")
+def dwh_actividad_reciente_todos():
+    """Última fecha de envío real y volumen, para TODAS las plantillas a la vez —
+    una sola consulta en vez de una por fila, para no sobrecargar el DWH ni la app."""
+    sql = """
+        SELECT poll_name, max(day) AS ultimo_envio, min(day) AS primer_envio, sum(sent) AS enviados_365d
+        FROM client_analytics.fact_deployment_daily
+        WHERE day >= today() - 365 AND poll_name != '' AND poll_name IS NOT NULL
+        GROUP BY poll_name
+    """
+    return dwh_query(sql)
+
+
 # ══════════════════════════════════════════════════════════════
 #  TARIFAS REALES DE TREBLE (auditadas contra export nativo "Inversión")
 #  Fuente: reporte nativo de Treble de Opción Yo (captura jun-2026).
@@ -1022,6 +1035,53 @@ with tab2:
         st.caption(f"ℹ️ {_sin_envios_periodo} plantilla(s) activa(s) del catálogo agregadas manualmente "
                    f"(sin envíos en este período) porque activaste esa opción arriba.")
 
+    # ── Verificación en vivo: último envío real y ¿coincide con lo que dice el catálogo? ──
+    # Una sola consulta para TODOS los pushes, no una por fila.
+    agg["Último envío (DWH)"] = pd.NaT
+    agg["¿Activo confirmado?"] = "❓ Sin dato DWH"
+    _mismatches = 0
+    if _dwh_ok:
+        _activ = dwh_actividad_reciente_todos()
+        if _activ is not None and not _activ.empty:
+            _activ_lista = [(_norm_txt(r["poll_name"]), r["ultimo_envio"]) for _, r in _activ.iterrows()]
+
+            def _buscar_ultimo_envio(nombre):
+                nn = _norm_txt(nombre)
+                for norm_p, ultimo in _activ_lista:
+                    if norm_p in nn or nn in norm_p:
+                        return ultimo
+                return None
+
+            agg["Último envío (DWH)"] = agg["name_clean"].apply(_buscar_ultimo_envio)
+            agg["Último envío (DWH)"] = pd.to_datetime(agg["Último envío (DWH)"], errors="coerce").dt.date
+            _hoy = pd.Timestamp.now().date()
+            agg["_dias_desde_envio"] = agg["Último envío (DWH)"].apply(
+                lambda d: (_hoy - d).days if pd.notna(d) else None)
+
+            def _estado_confirmado(row):
+                dias = row["_dias_desde_envio"]
+                catalogo_activo = row["activo"] is True
+                if pd.isna(dias):
+                    return "❓ Sin dato DWH"
+                dias = int(dias)
+                real_activo = dias <= 30
+                if real_activo != catalogo_activo:
+                    return f"🚨 Catálogo dice distinto (últ. envío hace {dias}d)"
+                return f"✅ Confirmado (hace {dias}d)" if real_activo else f"⏸️ Sin enviar hace {dias}d"
+
+            agg["¿Activo confirmado?"] = agg.apply(_estado_confirmado, axis=1)
+            _mismatches = agg["¿Activo confirmado?"].str.startswith("🚨").sum()
+            agg = agg.drop(columns=["_dias_desde_envio"])
+
+        if _mismatches:
+            st.markdown(
+                f'<div class="crit">🚨 <b>{_mismatches} push(es) donde el catálogo dice algo distinto a lo '
+                f'que Treble está haciendo de verdad</b> — mira la columna "¿Activo confirmado?" en la tabla '
+                f'de abajo para ver cuáles.</div>', unsafe_allow_html=True
+            )
+    else:
+        st.caption("🟡 Data Warehouse no conectado ahora mismo — no se puede verificar el estado real en vivo.")
+
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown('<span class="sec blue">Tabla comparativa — costo por push</span>', unsafe_allow_html=True)
     tabla = agg.rename(columns={
@@ -1029,7 +1089,8 @@ with tab2:
         "conversaciones_facturables": "Conversaciones facturables (est.)",
         "costo_estimado": "Costo estimado (USD)", "n_batches": "N° de tandas de envío", "equipo": "Equipo dueño"
     })
-    cols_tabla = ["Push / Campaña", "Activo", "Equipo dueño", "Enviados", "Entregados",
+    cols_tabla = ["Push / Campaña", "Activo", "¿Activo confirmado?", "Último envío (DWH)", "Equipo dueño",
+                  "Enviados", "Entregados",
                   "Conversaciones facturables (est.)", "Costo estimado (USD)",
                   "tasa_entrega_%", "tasa_respuesta_%", "N° de tandas de envío"]
     tabla = tabla[cols_tabla]
