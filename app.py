@@ -1060,7 +1060,7 @@ with tab2:
         "tasa_respuesta_%": "Respuesta %",
         "costo_estimado": "Costo (USD)", "n_batches": "Tandas de envío", "equipo": "Equipo"
     })
-    cols_tabla = ["Push / Campaña", "Activo", "¿Activo confirmado?", "Último envío (DWH)", "Equipo",
+    cols_tabla = ["Push / Campaña", "Activo", "Equipo",
                   "Enviados", "Entregados", "Conversaciones facturables", "Costo (USD)",
                   "Entrega %", "Respuesta %", "Tandas de envío"]
     tabla = tabla[cols_tabla]
@@ -1097,8 +1097,6 @@ with tab2:
             "Tandas de envío": st.column_config.NumberColumn(
                 help="Cantidad de envíos distintos registrados en el período."),
             "Activo": st.column_config.TextColumn(help="Estado documentado en el catálogo de plantillas."),
-            "¿Activo confirmado?": st.column_config.TextColumn(
-                help="Verificación en vivo contra Treble. 🚨 = el catálogo no coincide con la actividad real."),
             "Conversaciones facturables": st.column_config.NumberColumn(
                 help="Base de cálculo del costo, según el modelo elegido en ⚙️ Configuración."),
         }
