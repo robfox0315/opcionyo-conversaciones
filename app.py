@@ -228,7 +228,7 @@ def find_data_file(name: str):
 #  (help.treble.ai/es/docs/data-warehouse) — nada de esto es adivinado.
 #  Tablas usadas: fact_deployment_daily, fact_sessions, dim_hsm.
 # ══════════════════════════════════════════════════════════════
-@st.cache_resource(show_spinner=False)
+@st.cache_resource(ttl=180, show_spinner=False)
 def _dwh_client():
     try:
         cfg = st.secrets["treble_dwh"]
@@ -467,7 +467,7 @@ def tarifa_por_tramo(volumen: float) -> float:
 # ══════════════════════════════════════════════════════════════
 #  CARGA Y LIMPIEZA
 # ══════════════════════════════════════════════════════════════
-@st.cache_data(show_spinner="⏳ Cargando reporte de pushes…")
+@st.cache_data(ttl=300, show_spinner="⏳ Cargando reporte de pushes…")
 def load_general_report():
     # IMPORTANTE: preferimos el CSV para Pushes, NO el DWH. Auditoría confirmada:
     # poll_name viene vacío en 40.7% de las filas de fact_deployment_daily (7.3% del
@@ -506,7 +506,7 @@ def load_general_report():
     return df
 
 
-@st.cache_data(show_spinner="⏳ Cargando sesiones conversacionales…")
+@st.cache_data(ttl=300, show_spinner="⏳ Cargando sesiones conversacionales…")
 def load_sessions():
     df = dwh_sessions()
     fuente = "dwh"
@@ -542,7 +542,7 @@ def load_sessions():
     return df
 
 
-@st.cache_data(show_spinner="⏳ Cargando catálogo de plantillas…")
+@st.cache_data(ttl=300, show_spinner="⏳ Cargando catálogo de plantillas…")
 def load_catalog():
     path = find_data_file("catalog.csv")
     if not path:
@@ -591,7 +591,7 @@ def load_catalog():
     return df
 
 
-@st.cache_data(show_spinner="⏳ Cargando árbol de conversación…")
+@st.cache_data(ttl=300, show_spinner="⏳ Cargando árbol de conversación…")
 def load_arbol():
     path = find_data_file("arbol_conversacion.csv")
     if not path:
@@ -1394,17 +1394,46 @@ with tab4:
 with tab5:
     st.markdown('<span class="sec">Resumen por equipo</span>', unsafe_allow_html=True)
 
+    gr_costo_full = con_costo(gr)
+
+    # Equipo dueño por push, mismo criterio de matching que en Pushes Automáticos
+    _cat_lookup5 = cat.set_index("conversacion")["equipo"]
+    _cat_norm5 = {_norm_txt(k): v for k, v in _cat_lookup5.items()}
+    def _equipo_de(nombre):
+        nn = _norm_txt(nombre)
+        for kn, v in _cat_norm5.items():
+            if kn in nn or nn in kn:
+                return v
+        return "Sin match"
+    gr_costo_full = gr_costo_full.copy()
+    gr_costo_full["equipo"] = gr_costo_full["name_clean"].apply(_equipo_de)
+
+    envios_equipo = gr_costo_full.groupby("equipo").agg(
+        envios_totales=("successful", "sum"),
+        costo_total=("costo_estimado", "sum"),
+        resp_pond=("successful", lambda s: (s * gr_costo_full.loc[s.index, "response_rate"]).sum()),
+    ).reset_index()
+    envios_equipo["tasa_respuesta_%"] = (envios_equipo["resp_pond"] / envios_equipo["envios_totales"] * 100).round(1)
+    envios_equipo = envios_equipo.drop(columns=["resp_pond"])
+
     resumen_equipo = cat.groupby("equipo").agg(
         total=("conversacion", "count"),
         activas=("activo", "sum"),
         con_envio_automatico=("en_uso_real", "sum"),
     ).reset_index()
     resumen_equipo["inactivas"] = resumen_equipo["total"] - resumen_equipo["activas"]
+    resumen_equipo = resumen_equipo.merge(envios_equipo, on="equipo", how="left")
+    for c in ["envios_totales", "costo_total", "tasa_respuesta_%"]:
+        resumen_equipo[c] = resumen_equipo[c].fillna(0)
+
     resumen_equipo = resumen_equipo.rename(columns={
         "equipo": "Equipo", "total": "Total plantillas", "activas": "Activas",
-        "inactivas": "Inactivas", "con_envio_automatico": "Con push automático real"
-    })[["Equipo", "Total plantillas", "Activas", "Inactivas", "Con push automático real"]]
-    resumen_equipo = resumen_equipo.sort_values("Total plantillas", ascending=False)
+        "inactivas": "Inactivas", "con_envio_automatico": "Con push automático real",
+        "envios_totales": "Envíos reales", "costo_total": "Costo estimado (USD)",
+        "tasa_respuesta_%": "Tasa respuesta %"
+    })[["Equipo", "Total plantillas", "Activas", "Inactivas", "Con push automático real",
+        "Envíos reales", "Costo estimado (USD)", "Tasa respuesta %"]]
+    resumen_equipo = resumen_equipo.sort_values("Costo estimado (USD)", ascending=False)
 
     fe1, fe2 = st.columns([1, 3])
     with fe1:
@@ -1413,24 +1442,32 @@ with tab5:
 
     st.dataframe(resumen_f, use_container_width=True, hide_index=True,
                  column_config={
-                     "Total plantillas": st.column_config.NumberColumn(),
+                     "Costo estimado (USD)": st.column_config.NumberColumn(format="$%.2f"),
+                     "Tasa respuesta %": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%.1f%%"),
                      "Activas": st.column_config.ProgressColumn(
                          min_value=0, max_value=int(resumen_equipo["Total plantillas"].max()), format="%d"),
                  })
     boton_descarga(resumen_equipo, "resumen_por_equipo.csv", "t5_dl_equipo")
 
-    fig = px.bar(resumen_equipo.melt(id_vars="Equipo", value_vars=["Activas", "Inactivas"],
-                                       var_name="Estado", value_name="n"),
-                 x="Equipo", y="n", color="Estado", barmode="stack",
-                 color_discrete_map={"Activas": OY_OK, "Inactivas": "#CBD5D9"}, text="n")
-    fig.update_layout(xaxis_title="", yaxis_title="N° plantillas", legend_title="")
-    st.plotly_chart(sfig(fig, 320), use_container_width=True)
+    g1, g2 = st.columns(2)
+    with g1:
+        fig = px.bar(resumen_equipo.melt(id_vars="Equipo", value_vars=["Activas", "Inactivas"],
+                                           var_name="Estado", value_name="n"),
+                     x="Equipo", y="n", color="Estado", barmode="stack",
+                     color_discrete_map={"Activas": OY_OK, "Inactivas": "#CBD5D9"}, text="n")
+        fig.update_layout(xaxis_title="", yaxis_title="N° plantillas", legend_title="")
+        st.plotly_chart(sfig(fig, 320), use_container_width=True)
+    with g2:
+        fig = px.bar(resumen_equipo.sort_values("Costo estimado (USD)"), x="Costo estimado (USD)", y="Equipo",
+                     orientation="h", color_discrete_sequence=[OY_WARN], text="Costo estimado (USD)")
+        fig.update_traces(texttemplate="$%{text:,.0f}", textposition="outside")
+        fig.update_layout(xaxis_title="Costo estimado (USD)", yaxis_title="")
+        st.plotly_chart(sfig(fig, 320), use_container_width=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown('<span class="sec">Hallazgos automáticos para toma de decisiones</span>', unsafe_allow_html=True)
 
     insights = []
-    gr_costo_full = con_costo(gr)
 
     # 1) Tendencia de escalamiento a humano
     dh_full = sr.groupby("fecha").apply(
