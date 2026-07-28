@@ -570,6 +570,9 @@ def load_catalog():
     for c in ["equipo_fuente", "nivel_documentacion", "auditoria"]:
         if c not in df.columns:
             df[c] = "—"
+    if "nota_interna" not in df.columns:
+        df["nota_interna"] = ""
+    df["nota_interna"] = df["nota_interna"].fillna("")
     if "en_uso_real" not in df.columns:
         df["en_uso_real"] = False
     else:
@@ -1299,6 +1302,8 @@ with tab3:
 # ────────────────────────────────────────────────────────────────
 with tab4:
     st.markdown('<span class="sec">Inventario interno de plantillas HSM (los "pushes" que se envían)</span>', unsafe_allow_html=True)
+    st.caption(f"📄 Catálogo cargado: **{len(cat)} plantillas** · si este número no coincide con tu Excel, "
+               f"el archivo en tu repo no es el más reciente.")
 
     c1, c2, c3, c4 = st.columns(4)
     c1.markdown(kpi("Plantillas registradas", f"{len(cat)}", "", ""), unsafe_allow_html=True)
@@ -1314,6 +1319,13 @@ with tab4:
             f'<div class="alrt">⚠️ <b>{len(inconsistentes)} plantilla(s) marcadas "Inactivo" con envíos reales '
             f'registrados:</b> {detalle}.</div>',
             unsafe_allow_html=True
+        )
+
+    _candidatas_eliminar = cat[cat["nota_interna"].astype(str).str.contains("eliminar", case=False, na=False)]
+    if len(_candidatas_eliminar):
+        st.markdown(
+            f'<div class="info">🗑️ <b>{len(_candidatas_eliminar)} plantilla(s) marcadas por el equipo como '
+            f'candidatas a eliminar</b> — filtra por "Notas" abajo para verlas.</div>', unsafe_allow_html=True
         )
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -1336,11 +1348,12 @@ with tab4:
 
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown('<span class="sec">Explorador del catálogo</span>', unsafe_allow_html=True)
-    fc1, fc2, fc3, fc4 = st.columns(4)
+    fc1, fc2, fc3, fc4, fc5 = st.columns(5)
     equipo_f = fc1.multiselect("Equipo", sorted(cat["equipo"].unique()))
     estado_f = fc2.multiselect("Estado", sorted(cat["estado"].unique()))
     doc_f = fc3.multiselect("Documentación", sorted(cat["nivel_documentacion"].unique()))
-    buscar = fc4.text_input("Buscar", placeholder="Nombre del push…")
+    nota_f = fc4.multiselect("Notas", sorted(cat[cat["nota_interna"] != ""]["nota_interna"].unique()))
+    buscar = fc5.text_input("Buscar", placeholder="Nombre del push…")
 
     cat_f = cat.copy()
     if equipo_f:
@@ -1349,15 +1362,17 @@ with tab4:
         cat_f = cat_f[cat_f["estado"].isin(estado_f)]
     if doc_f:
         cat_f = cat_f[cat_f["nivel_documentacion"].isin(doc_f)]
+    if nota_f:
+        cat_f = cat_f[cat_f["nota_interna"].isin(nota_f)]
     if buscar:
         cat_f = cat_f[cat_f["conversacion"].str.contains(buscar, case=False, na=False)]
 
     cat_f_tabla = cat_f[["conversacion", "plantilla", "tipo", "proposito", "estado", "equipo",
-                         "envios_historicos", "entregados_historicos", "auditoria"]].rename(columns={
+                         "envios_historicos", "entregados_historicos", "nota_interna", "auditoria"]].rename(columns={
         "conversacion": "Conversación / Campaña", "plantilla": "HSM / Plantilla",
         "tipo": "Tipo", "proposito": "Para qué se envía", "estado": "Estado", "equipo": "Equipo",
         "envios_historicos": "Envíos reales", "entregados_historicos": "Entregados reales",
-        "auditoria": "Auditoría"
+        "nota_interna": "Nota del equipo", "auditoria": "Auditoría"
     })
     st.dataframe(cat_f_tabla, use_container_width=True, hide_index=True, height=420,
                  column_config={
@@ -1822,10 +1837,14 @@ with tab7:
                 hsm_mostrar = hsm_df if paso_pick == "Todos los pasos" else hsm_df[hsm_df["hsm_name"] == paso_pick]
                 resumen_paso = hsm_mostrar.groupby("answer_text")["respuestas"].sum().reset_index().sort_values("respuestas")
                 fig = px.bar(resumen_paso.tail(15), x="respuestas", y="answer_text",
-                             orientation="h", color_discrete_sequence=[OY_AMBER])
-                fig.update_layout(xaxis_title="Respuestas", yaxis_title="",
-                                   title=f"{paso_pick}" if paso_pick != "Todos los pasos" else None)
+                             orientation="h", color_discrete_sequence=[OY_AMBER], text="respuestas")
+                fig.update_traces(texttemplate="%{text:,}", textposition="outside")
+                layout_kwargs = dict(xaxis_title="Respuestas", yaxis_title="")
+                if paso_pick != "Todos los pasos":
+                    layout_kwargs["title"] = paso_pick
+                fig.update_layout(**layout_kwargs)
                 st.plotly_chart(sfig(fig, 380), use_container_width=True)
+                st.caption(f"Total de respuestas en este gráfico: {int(resumen_paso['respuestas'].sum()):,}")
                 boton_descarga(hsm_df, f"respuestas_{push_pick}.csv", "t7_dl_hsm")
 
             # ── 3) Dónde termina (fact_sessions status) ──
