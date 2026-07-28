@@ -1155,7 +1155,7 @@ with tab2:
         with sub2:
             st.caption("Pega uno o más nombres (uno por línea) y consulta directo contra el DWH.")
             if not _dwh_ok:
-                st.info("Data Warehouse no conectado.")
+                st.info(f"Data Warehouse no conectado: {_dwh_msg}")
             else:
                 nombres_verificar = st.text_area("Nombres a verificar", height=100, key="t2_verificar_nombres",
                                                    placeholder="Agendamiento exitoso\nPuntuación 1", label_visibility="collapsed")
@@ -1192,7 +1192,7 @@ with tab2:
         with sub3:
             st.caption("Detecta campañas con envíos reales que aún no están en el catálogo.")
             if not _dwh_ok:
-                st.info("Data Warehouse no conectado.")
+                st.info(f"Data Warehouse no conectado: {_dwh_msg}")
             else:
                 dias_nuevas = st.number_input("Días hacia atrás", min_value=1, value=7, step=1, key="t2_dias_nuevas")
                 if st.button("Buscar", key="t2_buscar_nuevas_btn"):
@@ -1490,7 +1490,7 @@ with tab6:
     # ── Sección en vivo: lo que SÍ se puede sacar del DWH directamente ──
     st.markdown('<span class="sec blue">🟢 En vivo — respuesta a plantillas HSM</span>', unsafe_allow_html=True)
     if not _dwh_ok:
-        st.caption("Data Warehouse no conectado.")
+        st.caption(f"Data Warehouse no conectado: {_dwh_msg}")
     else:
         sql_hsm = """
             SELECT hsm_name, count() AS respuestas, count(DISTINCT survey_user_id) AS usuarios_unicos
@@ -1764,7 +1764,7 @@ with tab7:
     st.caption("Cruza 3 fuentes en vivo: respuesta real, qué contestan, y en qué termina la conversación.")
 
     if not _dwh_ok:
-        st.markdown('<div class="alrt">Data Warehouse no conectado.</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="alrt">Data Warehouse no conectado: {_dwh_msg}</div>', unsafe_allow_html=True)
     else:
         push_opciones = sorted(cat[cat["activo"]]["conversacion"].unique())
         push_pick = st.selectbox("Elegí un push para analizar", push_opciones, key="t7_push")
