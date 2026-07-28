@@ -913,10 +913,13 @@ with tab2:
     st.markdown('<span class="sec">Desempeño y costo por push</span>', unsafe_allow_html=True)
 
     # ── Toolbar único: fecha, búsqueda, filtros de alcance ──
+    _fuente_gr_txt = "Data Warehouse en vivo" if gr.attrs.get("fuente") == "dwh" else "CSV de respaldo (no en vivo)"
     tc1, tc2, tc3, tc4 = st.columns([1, 1.6, 0.85, 0.85])
     with tc1:
         rango2 = st.date_input("📅 Fechas", value=(gr["fecha"].min(), gr["fecha"].max()),
-                                min_value=gr["fecha"].min(), max_value=gr["fecha"].max(), key="t2_fecha")
+                                min_value=gr["fecha"].min(), max_value=gr["fecha"].max(), key="t2_fecha",
+                                help=f"Fuente de datos: {_fuente_gr_txt}. Rango disponible: "
+                                     f"{gr['fecha'].min()} a {gr['fecha'].max()}.")
     with tc2:
         campanas_sel = st.multiselect("Push específico", sorted(gr["name_clean"].unique()),
                                        default=[], key="t2_campanas", placeholder="Todos los pushes")
@@ -1048,8 +1051,8 @@ with tab2:
     if mas_caro is not None:
         c4.markdown(kpi("Push más costoso", fmt_usd(mas_caro["costo_estimado"]), mas_caro["name_clean"][:28], "amber"),
                     unsafe_allow_html=True)
-    c5.markdown(kpi("Fuente de datos", "DWH en vivo" if _dwh_ok else "CSV (respaldo)", "",
-                    "ok" if _dwh_ok else ""), unsafe_allow_html=True)
+    c5.markdown(kpi("Fuente de datos", "DWH en vivo" if gr.attrs.get("fuente") == "dwh" else "CSV (respaldo)", "",
+                    "ok" if gr.attrs.get("fuente") == "dwh" else "warn"), unsafe_allow_html=True)
 
     # ── Tabla principal ──
     st.markdown("<br>", unsafe_allow_html=True)
