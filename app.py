@@ -911,31 +911,26 @@ with tab1:
 # TAB 2 · PUSHES AUTOMÁTICOS & COSTO
 # ────────────────────────────────────────────────────────────────
 with tab2:
-    st.markdown('<span class="sec">Desempeño y costo por push / plantilla automática</span>', unsafe_allow_html=True)
+    st.markdown('<span class="sec">Desempeño y costo por push</span>', unsafe_allow_html=True)
 
-    st.markdown('<span class="sec blue">🔍 Opciones de búsqueda</span>', unsafe_allow_html=True)
-    fc1, fc2, fc3, fc4 = st.columns([1, 1.4, 0.8, 0.8])
-    with fc1:
-        rango2 = st.date_input("📅 Rango de fechas", value=(gr["fecha"].min(), gr["fecha"].max()),
+    # ── Toolbar único: fecha, búsqueda, filtros de alcance ──
+    tc1, tc2, tc3, tc4 = st.columns([1, 1.6, 0.85, 0.85])
+    with tc1:
+        rango2 = st.date_input("📅 Fechas", value=(gr["fecha"].min(), gr["fecha"].max()),
                                 min_value=gr["fecha"].min(), max_value=gr["fecha"].max(), key="t2_fecha")
-    with fc2:
-        campanas_sel = st.multiselect("Buscar / filtrar por push o campaña específica",
-                                       sorted(gr["name_clean"].unique()), default=[], key="t2_campanas")
-    with fc3:
+    with tc2:
+        campanas_sel = st.multiselect("Push específico", sorted(gr["name_clean"].unique()),
+                                       default=[], key="t2_campanas", placeholder="Todos los pushes")
+    with tc3:
         st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-        ocultar_inactivos = st.checkbox("Ocultar inactivos", value=False, key="t2_ocultar_inactivos")
-    with fc4:
+        ocultar_inactivos = st.checkbox("Solo activos", value=False, key="t2_ocultar_inactivos")
+    with tc4:
         st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-        ocultar_sin_match = st.checkbox("Ocultar sin match", value=True, key="t2_ocultar_sin_match",
-                                         help="Campañas que no están en el catálogo de plantillas ATC — "
-                                              "normalmente son de la línea de Ventas/Marketing, fuera del "
-                                              "alcance de este dashboard.")
+        ocultar_sin_match = st.checkbox("Ocultar Ventas", value=True, key="t2_ocultar_sin_match",
+                                         help="Oculta campañas fuera del catálogo ATC (típicamente Ventas/Marketing).")
     incluir_sin_envios = st.checkbox(
-        "➕ Incluir también plantillas activas del catálogo que no tuvieron envíos en este período",
-        value=False, key="t2_incluir_sin_envios",
-        help="Apagado por defecto para que la tabla muestre solo actividad real. Actívalo si querés "
-             "ver el catálogo completo de plantillas activas, incluidas las que no enviaron nada."
-    )
+        "Incluir plantillas activas sin envíos en este período", value=False, key="t2_incluir_sin_envios",
+        help="Muestra también las plantillas activas del catálogo que no enviaron nada en el rango elegido.")
 
     if isinstance(rango2, tuple) and len(rango2) == 2:
         r2_ini, r2_fin = rango2
@@ -947,19 +942,11 @@ with tab2:
         gr_f = gr_f[gr_f["name_clean"].isin(campanas_sel)]
     gr_costo = con_costo(gr_f)
 
-    # Aviso inmediato y bien visible si el rango elegido no tiene NINGÚN envío real —
-    # si no, la tabla se llena solo con las filas en 0 (plantillas activas sin datos) y
-    # da la falsa impresión de que el dashboard está roto, cuando el problema es la fecha.
     if gr_f["successful"].sum() == 0:
         st.markdown(
-            f'<div class="crit">🚨 <b>No hay envíos registrados entre {r2_ini} y {r2_fin}.</b> '
-            f'Todo lo que ves abajo son las plantillas activas del catálogo en $0 — no es un error del '
-            f'dashboard, es que no hay datos reales en ese rango de fechas. Datos disponibles: '
-            f'{gr["fecha"].min()} a {gr["fecha"].max()}. Ajustá el "📅 Rango de fechas" de arriba.</div>',
-            unsafe_allow_html=True
+            f'<div class="crit">🚨 Sin envíos entre {r2_ini} y {r2_fin}. Datos disponibles: '
+            f'{gr["fecha"].min()} a {gr["fecha"].max()}.</div>', unsafe_allow_html=True
         )
-
-    st.markdown("<br>", unsafe_allow_html=True)
 
     agg = gr_costo.groupby("name_clean", observed=True).agg(
         envios=("successful", "sum"),
@@ -973,8 +960,7 @@ with tab2:
     agg["tasa_respuesta_%"] = (agg["resp_pond"] / agg["envios"] * 100).round(1)
     agg = agg.drop(columns=["resp_pond"]).sort_values("costo_estimado", ascending=False)
 
-    # Cruce con catálogo (matching normalizado sin tildes, para no perder coincidencias
-    # por un simple "Envio" vs "Envío") para traer equipo dueño Y si la plantilla está activa
+    # Cruce con catálogo (matching normalizado sin tildes)
     cat_lookup = cat.set_index("conversacion")[["equipo", "estado", "activo"]]
     cat_norm_index = {_norm_txt(k): k for k in cat_lookup.index}
     def _cat_match(n):
@@ -992,15 +978,11 @@ with tab2:
     inactivos_con_envio = int((agg["activo"] == False).sum())
     sin_match_n = int((agg["estado_catalogo"] == "Sin match").sum())
 
-    # Si el usuario activó "Incluir también plantillas activas sin envíos", agregamos esas filas
-    # en 0 — por defecto queda APAGADO para que la vista principal muestre solo actividad real
-    # (una tabla con 80+ filas en cero se ve mal en una presentación en vivo).
     if incluir_sin_envios:
         _nombres_en_tabla = [_norm_txt(n) for n in agg["name_clean"]]
         def _ya_esta(nombre_catalogo):
             nn = _norm_txt(nombre_catalogo)
             return any(nn in en or en in nn for en in _nombres_en_tabla)
-
         cat_activas_faltantes = cat[cat["activo"] & ~cat["conversacion"].apply(_ya_esta)]
         if len(cat_activas_faltantes):
             filas_extra = pd.DataFrame({
@@ -1018,25 +1000,7 @@ with tab2:
     if ocultar_sin_match:
         agg = agg[agg["estado_catalogo"] != "Sin match"]
 
-    c1, c2, c3, c4 = st.columns(4)
-    c1.markdown(kpi("Costo total estimado", fmt_usd(agg["costo_estimado"].sum()), "período seleccionado", "warn"),
-                unsafe_allow_html=True)
-    c2.markdown(kpi("Pushes con envíos", f"{len(agg)}", "", ""), unsafe_allow_html=True)
-    c3.markdown(kpi("Marcados inactivos pero con envíos", f"{inactivos_con_envio}",
-                    "revisar en catálogo" if inactivos_con_envio else "", "warn" if inactivos_con_envio else "ok"),
-                unsafe_allow_html=True)
-    mas_caro = agg.iloc[0] if len(agg) else None
-    if mas_caro is not None:
-        c4.markdown(kpi("Push más costoso", fmt_usd(mas_caro["costo_estimado"]), mas_caro["name_clean"][:30], "amber"),
-                    unsafe_allow_html=True)
-
-    _sin_envios_periodo = int((agg["envios"] == 0).sum())
-    if _sin_envios_periodo:
-        st.caption(f"ℹ️ {_sin_envios_periodo} plantilla(s) activa(s) del catálogo agregadas manualmente "
-                   f"(sin envíos en este período) porque activaste esa opción arriba.")
-
-    # ── Verificación en vivo: último envío real y ¿coincide con lo que dice el catálogo? ──
-    # Una sola consulta para TODOS los pushes, no una por fila.
+    # ── Verificación en vivo contra Treble: última actividad real de TODOS los pushes ──
     agg["Último envío (DWH)"] = pd.NaT
     agg["¿Activo confirmado?"] = "❓ Sin dato DWH"
     _mismatches = 0
@@ -1066,256 +1030,196 @@ with tab2:
                 dias = int(dias)
                 real_activo = dias <= 30
                 if real_activo != catalogo_activo:
-                    return f"🚨 Catálogo dice distinto (últ. envío hace {dias}d)"
+                    return f"🚨 Revisar (últ. envío hace {dias}d)"
                 return f"✅ Confirmado (hace {dias}d)" if real_activo else f"⏸️ Sin enviar hace {dias}d"
 
             agg["¿Activo confirmado?"] = agg.apply(_estado_confirmado, axis=1)
             _mismatches = agg["¿Activo confirmado?"].str.startswith("🚨").sum()
             agg = agg.drop(columns=["_dias_desde_envio"])
 
-        if _mismatches:
-            st.markdown(
-                f'<div class="crit">🚨 <b>{_mismatches} push(es) donde el catálogo dice algo distinto a lo '
-                f'que Treble está haciendo de verdad</b> — mira la columna "¿Activo confirmado?" en la tabla '
-                f'de abajo para ver cuáles.</div>', unsafe_allow_html=True
-            )
-    else:
-        st.caption("🟡 Data Warehouse no conectado ahora mismo — no se puede verificar el estado real en vivo.")
+    # ── KPIs ──
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.markdown(kpi("Costo total", fmt_usd(agg["costo_estimado"].sum()), "período seleccionado", "warn"),
+                unsafe_allow_html=True)
+    c2.markdown(kpi("Pushes con envíos", f"{len(agg)}", "", ""), unsafe_allow_html=True)
+    c3.markdown(kpi("Catálogo vs. realidad", f"{inactivos_con_envio + _mismatches}",
+                    "discrepancias a revisar" if (inactivos_con_envio or _mismatches) else "todo consistente",
+                    "warn" if (inactivos_con_envio or _mismatches) else "ok"), unsafe_allow_html=True)
+    mas_caro = agg.iloc[0] if len(agg) else None
+    if mas_caro is not None:
+        c4.markdown(kpi("Push más costoso", fmt_usd(mas_caro["costo_estimado"]), mas_caro["name_clean"][:28], "amber"),
+                    unsafe_allow_html=True)
+    c5.markdown(kpi("Fuente de datos", "DWH en vivo" if _dwh_ok else "CSV (respaldo)", "",
+                    "ok" if _dwh_ok else ""), unsafe_allow_html=True)
 
+    # ── Tabla principal ──
     st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown('<span class="sec blue">Tabla comparativa — costo por push</span>', unsafe_allow_html=True)
     tabla = agg.rename(columns={
         "name_clean": "Push / Campaña", "envios": "Enviados", "entregados": "Entregados",
-        "conversaciones_facturables": "Conversaciones facturables (est.)",
-        "costo_estimado": "Costo estimado (USD)", "n_batches": "N° de tandas de envío", "equipo": "Equipo dueño"
+        "conversaciones_facturables": "Conversaciones facturables", "tasa_entrega_%": "Entrega %",
+        "tasa_respuesta_%": "Respuesta %",
+        "costo_estimado": "Costo (USD)", "n_batches": "Tandas de envío", "equipo": "Equipo"
     })
-    cols_tabla = ["Push / Campaña", "Activo", "¿Activo confirmado?", "Último envío (DWH)", "Equipo dueño",
-                  "Enviados", "Entregados",
-                  "Conversaciones facturables (est.)", "Costo estimado (USD)",
-                  "tasa_entrega_%", "tasa_respuesta_%", "N° de tandas de envío"]
+    cols_tabla = ["Push / Campaña", "Activo", "¿Activo confirmado?", "Último envío (DWH)", "Equipo",
+                  "Enviados", "Entregados", "Conversaciones facturables", "Costo (USD)",
+                  "Entrega %", "Respuesta %", "Tandas de envío"]
     tabla = tabla[cols_tabla]
 
-    st.markdown("**Filtrar la tabla:**")
     ft1, ft2, ft3, ft4, ft5 = st.columns([1.3, 1, 1, 1, 1])
     with ft1:
-        f_nombre = st.text_input("🔍 Push / Campaña", key="t2_f_nombre")
+        f_nombre = st.text_input("Buscar", key="t2_f_nombre", placeholder="Nombre del push…")
     with ft2:
-        f_equipo = st.multiselect("Equipo dueño", sorted(tabla["Equipo dueño"].dropna().unique()), key="t2_f_equipo")
+        f_equipo = st.multiselect("Equipo", sorted(tabla["Equipo"].dropna().unique()), key="t2_f_equipo")
     with ft3:
         f_activo = st.multiselect("Activo", sorted(tabla["Activo"].unique()), key="t2_f_activo")
     with ft4:
-        f_entrega_min = st.number_input("Tasa entrega % mín.", min_value=0, max_value=100, value=0, step=5, key="t2_f_entrega")
+        f_entrega_min = st.number_input("Entrega % mín.", min_value=0, max_value=100, value=0, step=5, key="t2_f_entrega")
     with ft5:
-        f_respuesta_min = st.number_input("Tasa respuesta % mín.", min_value=0, max_value=100, value=0, step=5, key="t2_f_resp")
+        f_respuesta_min = st.number_input("Respuesta % mín.", min_value=0, max_value=100, value=0, step=5, key="t2_f_resp")
 
     if f_nombre:
         tabla = tabla[tabla["Push / Campaña"].str.contains(f_nombre, case=False, na=False)]
     if f_equipo:
-        tabla = tabla[tabla["Equipo dueño"].isin(f_equipo)]
+        tabla = tabla[tabla["Equipo"].isin(f_equipo)]
     if f_activo:
         tabla = tabla[tabla["Activo"].isin(f_activo)]
     if f_entrega_min:
-        tabla = tabla[tabla["tasa_entrega_%"] >= f_entrega_min]
+        tabla = tabla[tabla["Entrega %"] >= f_entrega_min]
     if f_respuesta_min:
-        tabla = tabla[tabla["tasa_respuesta_%"] >= f_respuesta_min]
+        tabla = tabla[tabla["Respuesta %"] >= f_respuesta_min]
 
     st.dataframe(
-        tabla, use_container_width=True, hide_index=True,
+        tabla, use_container_width=True, hide_index=True, height=460,
         column_config={
-            "Costo estimado (USD)": st.column_config.NumberColumn(format="$%.2f"),
-            "tasa_entrega_%": st.column_config.ProgressColumn("Tasa entrega %", min_value=0, max_value=100, format="%.1f%%"),
-            "tasa_respuesta_%": st.column_config.ProgressColumn("Tasa respuesta %", min_value=0, max_value=100, format="%.1f%%"),
-            "N° de tandas de envío": st.column_config.NumberColumn(
-                help="Cuántas veces distintas se disparó esta plantilla en el período (cada fila del "
-                     "Reporte general de Treble es una tanda — ej. el recordatorio automático que sale "
-                     "cada 3 horas genera una tanda nueva cada vez que corre)."),
+            "Costo (USD)": st.column_config.NumberColumn(format="$%.2f"),
+            "Entrega %": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%.1f%%"),
+            "Respuesta %": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%.1f%%"),
+            "Tandas de envío": st.column_config.NumberColumn(
+                help="Cantidad de envíos distintos registrados en el período."),
+            "Activo": st.column_config.TextColumn(help="Estado documentado en el catálogo de plantillas."),
+            "¿Activo confirmado?": st.column_config.TextColumn(
+                help="Verificación en vivo contra Treble. 🚨 = el catálogo no coincide con la actividad real."),
+            "Conversaciones facturables": st.column_config.NumberColumn(
+                help="Base de cálculo del costo, según el modelo elegido en ⚙️ Configuración."),
         }
     )
     boton_descarga(tabla, "costo_por_push.csv", "t2_dl_tabla")
-    st.caption(
-        "💡 'Conversaciones facturables (est.)' depende del modelo de costo elegido arriba (⚙️ Configuración): "
-        "todo lo entregado, o solo lo que generó respuesta. 'Activo' viene del catálogo de plantillas "
-        "(pestaña 🗂️ Catálogo) — si dice '⛔ No' pero tiene envíos reales aquí, hay una inconsistencia "
-        "entre lo documentado y lo que realmente se está enviando (revisar con Iva)."
-        + (f" Hay {sin_match_n} campaña(s) sin match en el catálogo ocultas — normalmente son de la línea "
-           "de Ventas/Marketing, fuera del alcance de este dashboard." if ocultar_sin_match and sin_match_n else "")
-    )
 
-    # ── Auditoría: validación de la tarifa real contra el gasto reportado por Treble ──
+    # ── Gráficos ──
     st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown('<span class="sec red">🔎 Auditoría — validación contra gasto real reportado por Treble</span>',
-                unsafe_allow_html=True)
-    st.markdown(
-        '<div class="info">Esta tarifa <b>no es un supuesto</b>: se extrajo y auditó contra el reporte '
-        'nativo de Treble ("Inversión"), que muestra el gasto real ya facturado a Opción Yo por cada '
-        'plantilla operativa de ATC. La tabla de abajo compara el gasto real reportado por Treble contra '
-        'lo que calcularíamos aplicando la tarifa de $0.20/conversación (tramo de bajo volumen, vigente '
-        'en la ventana de referencia).</div>',
-        unsafe_allow_html=True
-    )
-
-    filas_audit = []
-    for nombre, (vol_real, usd_real) in TREBLE_REAL_POR_PUSH.items():
-        modelo_usd = round(vol_real * 0.20, 2)
-        diff = round(modelo_usd - usd_real, 2)
-        filas_audit.append({
-            "Push (plantilla ATC)": nombre,
-            "Conversaciones reales (Treble)": vol_real,
-            "Gasto real (Treble)": usd_real,
-            "Gasto modelado ($0.20/conv.)": modelo_usd,
-            "Diferencia": diff,
-        })
-    audit_df = pd.DataFrame(filas_audit).sort_values("Conversaciones reales (Treble)", ascending=False)
-    st.dataframe(audit_df, use_container_width=True, hide_index=True,
-                 column_config={
-                     "Gasto real (Treble)": st.column_config.NumberColumn(format="$%.2f"),
-                     "Gasto modelado ($0.20/conv.)": st.column_config.NumberColumn(format="$%.2f"),
-                     "Diferencia": st.column_config.NumberColumn(format="$%.2f"),
-                 })
-    boton_descarga(audit_df, "auditoria_tarifa_real.csv", "t2_dl_audit")
-    st.markdown(
-        f'<div class="good">✅ <b>Auditoría validada:</b> el modelo de $0.20 por conversación replica el '
-        f'gasto real reportado por Treble prácticamente exacto (diferencia de centavos por redondeo) en '
-        f'las {len(TREBLE_REAL_POR_PUSH)} plantillas operativas de ATC verificadas. Los tramos superiores '
-        f'($0.18 / $0.15 / $0.12) aplican automáticamente cuando el volumen mensual total supera '
-        f'5,000 / 10,000 / 20,000 conversaciones — el dashboard ya lo calcula solo, mes a mes.</div>',
-        unsafe_allow_html=True
-    )
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown('<span class="sec amb">Costo estimado por push</span>', unsafe_allow_html=True)
+    g1, g2 = st.columns(2)
+    with g1:
+        st.markdown('<span class="sec amb">Costo por push</span>', unsafe_allow_html=True)
         fig = px.bar(agg.sort_values("costo_estimado"), x="costo_estimado", y="name_clean", orientation="h",
                      color="costo_estimado", color_continuous_scale=[OY_TEAL, OY_AMBER, OY_WARN])
-        fig.update_layout(yaxis_title="", xaxis_title="Costo estimado (USD)", coloraxis_showscale=False)
+        fig.update_layout(yaxis_title="", xaxis_title="USD", coloraxis_showscale=False)
         st.plotly_chart(sfig(fig, 420), use_container_width=True)
-    with col2:
+    with g2:
         st.markdown('<span class="sec purple">Tasa de respuesta por push</span>', unsafe_allow_html=True)
         fig = px.bar(agg.sort_values("tasa_respuesta_%"), x="tasa_respuesta_%", y="name_clean", orientation="h",
                      color="tasa_respuesta_%", color_continuous_scale=[OY_WARN, OY_AMBER, OY_TEAL])
         fig.update_layout(yaxis_title="", xaxis_title="% respuesta", coloraxis_showscale=False)
         st.plotly_chart(sfig(fig, 420), use_container_width=True)
 
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown('<span class="sec">Evolución temporal · selecciona un push</span>', unsafe_allow_html=True)
-    camp_pick = st.selectbox("Push a inspeccionar", sorted(gr_f["name_clean"].unique()))
+    st.markdown('<span class="sec">Evolución temporal</span>', unsafe_allow_html=True)
+    camp_pick = st.selectbox("Push", sorted(gr_f["name_clean"].unique()), key="t2_serie_pick", label_visibility="collapsed")
     serie = gr_costo[gr_costo["name_clean"] == camp_pick].groupby("fecha").agg(
         enviados=("successful", "sum"), costo=("costo_estimado", "sum"),
         resp=("response_rate", "mean")).reset_index()
     fig = go.Figure()
     fig.add_trace(go.Bar(x=serie["fecha"], y=serie["enviados"], name="Enviados", marker_color=OY_TEAL, yaxis="y"))
-    fig.add_trace(go.Scatter(x=serie["fecha"], y=serie["costo"], name="Costo estimado (USD)",
+    fig.add_trace(go.Scatter(x=serie["fecha"], y=serie["costo"], name="Costo (USD)",
                               yaxis="y2", line=dict(color=OY_WARN, width=3)))
-    fig.update_layout(
-        yaxis=dict(title="Enviados"),
-        yaxis2=dict(title="Costo USD", overlaying="y", side="right"),
-        title=f"Serie temporal · {camp_pick}"
-    )
+    fig.update_layout(yaxis=dict(title="Enviados"),
+                       yaxis2=dict(title="Costo USD", overlaying="y", side="right"),
+                       title=camp_pick)
     st.plotly_chart(sfig(fig, 380), use_container_width=True)
 
-    # ── Verificador de plantillas específicas contra el DWH ──
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown('<span class="sec red">🔬 Verificar si una plantilla se envió de verdad (Data Warehouse)</span>',
-                unsafe_allow_html=True)
-    st.caption(
-        "Para cuando una plantilla nueva no aparece en la tabla de arriba y necesitas saber si es "
-        "porque nunca se envió, o porque el nombre no coincide. Pega uno o más nombres (uno por "
-        "línea) y consulto directo contra `fact_deployment_daily` — sin pasar por el catálogo ni "
-        "por ningún filtro del dashboard."
-    )
-    if not _dwh_ok:
-        st.markdown('<div class="alrt">Data Warehouse no conectado ahora mismo — esta verificación no está '
-                    'disponible sin conexión.</div>', unsafe_allow_html=True)
-    else:
-        nombres_verificar = st.text_area(
-            "Nombres a verificar (uno por línea)", height=120, key="t2_verificar_nombres",
-            placeholder="Agendamiento exitoso\nPuntuación 1\nSDD sin agendar"
-        )
-        if st.button("Verificar contra el DWH", key="t2_verificar_btn"):
-            lineas = [l.strip() for l in nombres_verificar.split("\n") if l.strip()]
-            if not lineas:
-                st.warning("Pegá al menos un nombre para verificar.")
-            else:
-                resultados = []
-                for nombre in lineas:
-                    nombre_esc = nombre.replace("'", "''")
-                    sql = f"""
-                        SELECT poll_name, sum(sent) AS enviados, sum(delivered) AS entregados,
-                               max(day) AS ultimo_envio, min(day) AS primer_envio
-                        FROM client_analytics.fact_deployment_daily
-                        WHERE positionCaseInsensitive(poll_name, '{nombre_esc}') > 0
-                        GROUP BY poll_name ORDER BY enviados DESC LIMIT 5
-                    """
-                    r = dwh_query(sql)
-                    if r is None or r.empty:
-                        resultados.append({"Buscado": nombre, "poll_name real en DWH": "— no encontrado —",
-                                            "Enviados": 0, "Entregados": 0, "Primer envío": "—", "Último envío": "—"})
-                    else:
-                        for _, row in r.iterrows():
-                            resultados.append({
-                                "Buscado": nombre, "poll_name real en DWH": row["poll_name"],
-                                "Enviados": int(row["enviados"]), "Entregados": int(row["entregados"]),
-                                "Primer envío": str(row["primer_envio"]), "Último envío": str(row["ultimo_envio"]),
-                            })
-                res_df = pd.DataFrame(resultados)
-                st.dataframe(res_df, use_container_width=True, hide_index=True)
-                no_encontrados = res_df[res_df["poll_name real en DWH"] == "— no encontrado —"]
-                if len(no_encontrados):
-                    st.markdown(
-                        f'<div class="crit">🚨 {len(no_encontrados)} nombre(s) sin ningún registro real en '
-                        f'el DWH: {", ".join(no_encontrados["Buscado"])}. Esto confirma que nunca se '
-                        f'enviaron — no es un problema del dashboard, hay que revisar en Treble si la '
-                        f'plantilla está realmente activada y disparándose.</div>', unsafe_allow_html=True
-                    )
-                boton_descarga(res_df, "verificacion_plantillas_dwh.csv", "t2_dl_verificar")
+    # ── Herramientas avanzadas (colapsadas por defecto) ──
+    with st.expander("🛠️ Herramientas avanzadas — auditoría de tarifa, verificación puntual, campañas nuevas"):
+        sub1, sub2, sub3 = st.tabs(["Auditoría de tarifa", "Verificar una plantilla", "Campañas nuevas"])
 
-    # ── Detector de campañas nuevas no catalogadas ──
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown('<span class="sec purple">🆕 Detectar campañas nuevas no catalogadas</span>', unsafe_allow_html=True)
-    st.caption(
-        "El resto del dashboard solo muestra campañas que ya están en el catálogo de plantillas — "
-        "así sacamos a Ventas/Marketing, pero eso también esconde cualquier push NUEVO que aún no "
-        "hayas agregado al Excel del catálogo. Esta herramienta consulta el DWH directo, sin ese "
-        "filtro, para que puedas verlas y decidir cuáles agregar."
-    )
-    if not _dwh_ok:
-        st.markdown('<div class="alrt">Data Warehouse no conectado ahora mismo.</div>', unsafe_allow_html=True)
-    else:
-        dias_nuevas = st.number_input("Buscar campañas creadas en los últimos... (días)", min_value=1,
-                                       value=7, step=1, key="t2_dias_nuevas")
-        if st.button("Buscar campañas nuevas", key="t2_buscar_nuevas_btn"):
-            sql_nuevas = f"""
-                SELECT poll_name, sum(sent) AS enviados, min(day) AS primera_fecha, max(day) AS ultima_fecha
-                FROM client_analytics.fact_deployment_daily
-                WHERE day >= today() - {int(dias_nuevas)} AND poll_name != '' AND poll_name IS NOT NULL
-                GROUP BY poll_name ORDER BY primera_fecha DESC
-            """
-            nuevas_df = dwh_query(sql_nuevas)
-            if nuevas_df is None or nuevas_df.empty:
-                st.info(f"No hay campañas con envíos en los últimos {dias_nuevas} días.")
-            else:
-                nuevas_df["¿Está en el catálogo?"] = nuevas_df["poll_name"].apply(
-                    lambda n: "✅ Sí" if _es_campana_atc(n) else "❓ No está — revisar"
-                )
-                nuevas_df = nuevas_df.rename(columns={
-                    "poll_name": "Campaña", "enviados": "Enviados", "primera_fecha": "Primer envío",
-                    "ultima_fecha": "Último envío"
+        with sub1:
+            st.caption("Compara el gasto real reportado por Treble contra el modelo de $0.20/conversación "
+                       "para las plantillas ya auditadas.")
+            filas_audit = []
+            for nombre, (vol_real, usd_real) in TREBLE_REAL_POR_PUSH.items():
+                modelo_usd = round(vol_real * 0.20, 2)
+                filas_audit.append({
+                    "Push": nombre, "Conversaciones reales": vol_real,
+                    "Gasto real (Treble)": usd_real, "Gasto modelado": modelo_usd,
+                    "Diferencia": round(modelo_usd - usd_real, 2),
                 })
-                no_catalogadas = nuevas_df[nuevas_df["¿Está en el catálogo?"].str.contains("No está")]
-                st.dataframe(nuevas_df, use_container_width=True, hide_index=True)
-                boton_descarga(nuevas_df, "campanas_nuevas_dwh.csv", "t2_dl_nuevas")
-                if len(no_catalogadas):
-                    st.markdown(
-                        f'<div class="alrt">⚠️ {len(no_catalogadas)} campaña(s) con envíos reales en los '
-                        f'últimos {dias_nuevas} días que <b>no están en el catálogo Excel</b>: '
-                        f'{", ".join(no_catalogadas["Campaña"])}. Revisa si son de Consultoría/ATC (para '
-                        f'agregarlas al catálogo) o de Ventas/Marketing (para ignorarlas, es esperable '
-                        f'que aparezcan acá).</div>', unsafe_allow_html=True
-                    )
-                else:
-                    st.markdown('<div class="good">✅ Todas las campañas de este período ya están en el '
-                                'catálogo.</div>', unsafe_allow_html=True)
+            audit_df = pd.DataFrame(filas_audit).sort_values("Conversaciones reales", ascending=False)
+            st.dataframe(audit_df, use_container_width=True, hide_index=True,
+                         column_config={
+                             "Gasto real (Treble)": st.column_config.NumberColumn(format="$%.2f"),
+                             "Gasto modelado": st.column_config.NumberColumn(format="$%.2f"),
+                             "Diferencia": st.column_config.NumberColumn(format="$%.2f"),
+                         })
+            boton_descarga(audit_df, "auditoria_tarifa_real.csv", "t2_dl_audit")
+
+        with sub2:
+            st.caption("Pega uno o más nombres (uno por línea) y consulta directo contra el DWH.")
+            if not _dwh_ok:
+                st.info("Data Warehouse no conectado.")
+            else:
+                nombres_verificar = st.text_area("Nombres a verificar", height=100, key="t2_verificar_nombres",
+                                                   placeholder="Agendamiento exitoso\nPuntuación 1", label_visibility="collapsed")
+                if st.button("Verificar", key="t2_verificar_btn"):
+                    lineas = [l.strip() for l in nombres_verificar.split("\n") if l.strip()]
+                    if not lineas:
+                        st.warning("Pegá al menos un nombre.")
+                    else:
+                        resultados = []
+                        for nombre in lineas:
+                            nombre_esc = nombre.replace("'", "''")
+                            sql = f"""
+                                SELECT poll_name, sum(sent) AS enviados, sum(delivered) AS entregados,
+                                       max(day) AS ultimo_envio, min(day) AS primer_envio
+                                FROM client_analytics.fact_deployment_daily
+                                WHERE positionCaseInsensitive(poll_name, '{nombre_esc}') > 0
+                                GROUP BY poll_name ORDER BY enviados DESC LIMIT 5
+                            """
+                            r = dwh_query(sql)
+                            if r is None or r.empty:
+                                resultados.append({"Buscado": nombre, "poll_name real": "— no encontrado —",
+                                                    "Enviados": 0, "Entregados": 0, "Primer envío": "—", "Último envío": "—"})
+                            else:
+                                for _, row in r.iterrows():
+                                    resultados.append({
+                                        "Buscado": nombre, "poll_name real": row["poll_name"],
+                                        "Enviados": int(row["enviados"]), "Entregados": int(row["entregados"]),
+                                        "Primer envío": str(row["primer_envio"]), "Último envío": str(row["ultimo_envio"]),
+                                    })
+                        res_df = pd.DataFrame(resultados)
+                        st.dataframe(res_df, use_container_width=True, hide_index=True)
+                        boton_descarga(res_df, "verificacion_plantillas_dwh.csv", "t2_dl_verificar")
+
+        with sub3:
+            st.caption("Detecta campañas con envíos reales que aún no están en el catálogo.")
+            if not _dwh_ok:
+                st.info("Data Warehouse no conectado.")
+            else:
+                dias_nuevas = st.number_input("Días hacia atrás", min_value=1, value=7, step=1, key="t2_dias_nuevas")
+                if st.button("Buscar", key="t2_buscar_nuevas_btn"):
+                    sql_nuevas = f"""
+                        SELECT poll_name, sum(sent) AS enviados, min(day) AS primera_fecha, max(day) AS ultima_fecha
+                        FROM client_analytics.fact_deployment_daily
+                        WHERE day >= today() - {int(dias_nuevas)} AND poll_name != '' AND poll_name IS NOT NULL
+                        GROUP BY poll_name ORDER BY primera_fecha DESC
+                    """
+                    nuevas_df = dwh_query(sql_nuevas)
+                    if nuevas_df is None or nuevas_df.empty:
+                        st.info(f"Sin campañas en los últimos {dias_nuevas} días.")
+                    else:
+                        nuevas_df["¿En catálogo?"] = nuevas_df["poll_name"].apply(
+                            lambda n: "✅ Sí" if _es_campana_atc(n) else "❓ Revisar")
+                        nuevas_df = nuevas_df.rename(columns={
+                            "poll_name": "Campaña", "enviados": "Enviados",
+                            "primera_fecha": "Primer envío", "ultima_fecha": "Último envío"})
+                        st.dataframe(nuevas_df, use_container_width=True, hide_index=True)
+                        boton_descarga(nuevas_df, "campanas_nuevas_dwh.csv", "t2_dl_nuevas")
 
 
 # ────────────────────────────────────────────────────────────────
@@ -1417,10 +1321,8 @@ with tab4:
         st.markdown("<br>", unsafe_allow_html=True)
         detalle = ", ".join(inconsistentes["conversacion"].tolist())
         st.markdown(
-            f'<div class="alrt">⚠️ <b>Auditoría — {len(inconsistentes)} plantillas marcadas "Inactivo" en el '
-            f'catálogo pero con envíos reales registrados:</b> {detalle}. El catálogo (spreadsheet) está '
-            f'desactualizado respecto a lo que realmente se está enviando — conviene corregirlo con Iva '
-            f'para que el estado documentado refleje la realidad.</div>',
+            f'<div class="alrt">⚠️ <b>{len(inconsistentes)} plantilla(s) marcadas "Inactivo" con envíos reales '
+            f'registrados:</b> {detalle}.</div>',
             unsafe_allow_html=True
         )
 
@@ -1435,25 +1337,20 @@ with tab4:
         fig.update_layout(xaxis_title="", yaxis_title="N° plantillas", legend_title="")
         st.plotly_chart(sfig(fig, 340), use_container_width=True)
     with col2:
-        st.markdown('<span class="sec amb">Nivel de documentación del catálogo</span>', unsafe_allow_html=True)
+        st.markdown('<span class="sec amb">Nivel de documentación</span>', unsafe_allow_html=True)
         nd = cat["nivel_documentacion"].value_counts().reset_index()
         nd.columns = ["nivel", "n"]
         fig = px.pie(nd, names="nivel", values="n", hole=.5,
                      color="nivel", color_discrete_map={"Completa": OY_OK, "Parcial": OY_AMBER, "Sin documentar": OY_WARN})
         st.plotly_chart(sfig(fig, 340), use_container_width=True)
-    st.caption(
-        "💡 'Nivel de documentación' indica si el catálogo original tenía cargado el mensaje, tipo y "
-        "propósito de cada plantilla, o si quedó incompleto. Las plantillas 'Sin documentar' no se "
-        "inventaron — se dejaron explícitamente marcadas así para no mostrar información falsa."
-    )
 
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown('<span class="sec">Explorador del catálogo</span>', unsafe_allow_html=True)
     fc1, fc2, fc3, fc4 = st.columns(4)
     equipo_f = fc1.multiselect("Equipo", sorted(cat["equipo"].unique()))
     estado_f = fc2.multiselect("Estado", sorted(cat["estado"].unique()))
-    doc_f = fc3.multiselect("Nivel de documentación", sorted(cat["nivel_documentacion"].unique()))
-    buscar = fc4.text_input("Buscar por nombre")
+    doc_f = fc3.multiselect("Documentación", sorted(cat["nivel_documentacion"].unique()))
+    buscar = fc4.text_input("Buscar", placeholder="Nombre del push…")
 
     cat_f = cat.copy()
     if equipo_f:
@@ -1469,15 +1366,14 @@ with tab4:
                          "envios_historicos", "entregados_historicos", "auditoria"]].rename(columns={
         "conversacion": "Conversación / Campaña", "plantilla": "HSM / Plantilla",
         "tipo": "Tipo", "proposito": "Para qué se envía", "estado": "Estado", "equipo": "Equipo",
-        "envios_historicos": "Envíos reales (histórico)", "entregados_historicos": "Entregados reales",
-        "auditoria": "Nota de auditoría"
+        "envios_historicos": "Envíos reales", "entregados_historicos": "Entregados reales",
+        "auditoria": "Auditoría"
     })
-    st.dataframe(cat_f_tabla, use_container_width=True, hide_index=True, height=420)
+    st.dataframe(cat_f_tabla, use_container_width=True, hide_index=True, height=420,
+                 column_config={
+                     "Envíos reales": st.column_config.NumberColumn(help="Cruce directo con Treble — no estimado."),
+                 })
     boton_descarga(cat_f_tabla, "catalogo_plantillas.csv", "t4_dl_catalogo")
-    st.caption(
-        "'Envíos reales (histórico)' y 'Entregados reales' vienen del cruce directo con el Reporte "
-        "general de Treble — no son estimados."
-    )
 
 
 # ────────────────────────────────────────────────────────────────
