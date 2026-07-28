@@ -233,25 +233,29 @@ def _dwh_client():
     try:
         cfg = st.secrets["treble_dwh"]
     except Exception:
-        return None
+        return None, "No se encontró el bloque [treble_dwh] en Secrets — revisa que esté guardado tal cual."
     try:
         import clickhouse_connect
-        return clickhouse_connect.get_client(
+    except Exception as e:
+        return None, f"La librería clickhouse-connect no está instalada en el servidor: {e}. Revisa requirements.txt."
+    try:
+        cliente = clickhouse_connect.get_client(
             host=cfg["host"], port=int(cfg.get("port", 8443)),
             username=cfg["username"], password=cfg["password"],
             database=cfg.get("database", "client_analytics"),
             secure=True, connect_timeout=10,
         )
-    except Exception:
-        return None
+        return cliente, None
+    except Exception as e:
+        return None, f"No se pudo crear el cliente: {str(e)[:200]}"
 
 
 @st.cache_data(ttl=600, show_spinner=False)
 def dwh_status():
     """Prueba la conexión y devuelve (ok, mensaje, lista_de_tablas)."""
-    client = _dwh_client()
+    client, error = _dwh_client()
     if client is None:
-        return False, "Sin credenciales en Secrets (falta [treble_dwh]) o librería no disponible.", []
+        return False, error, []
     try:
         client.query("SELECT 1")
         tablas = [r[0] for r in client.query("SHOW TABLES").result_rows]
@@ -263,7 +267,7 @@ def dwh_status():
 @st.cache_data(ttl=300, show_spinner=False)
 def dwh_query(sql: str):
     """Ejecuta una consulta SQL contra el DWH y devuelve un DataFrame, o None si falla."""
-    client = _dwh_client()
+    client, _ = _dwh_client()
     if client is None:
         return None
     try:
@@ -1385,6 +1389,41 @@ with tab4:
 # TAB 5 · INSIGHTS & RECOMENDACIONES
 # ────────────────────────────────────────────────────────────────
 with tab5:
+    st.markdown('<span class="sec">Resumen por equipo</span>', unsafe_allow_html=True)
+
+    resumen_equipo = cat.groupby("equipo").agg(
+        total=("conversacion", "count"),
+        activas=("activo", "sum"),
+        con_envio_automatico=("en_uso_real", "sum"),
+    ).reset_index()
+    resumen_equipo["inactivas"] = resumen_equipo["total"] - resumen_equipo["activas"]
+    resumen_equipo = resumen_equipo.rename(columns={
+        "equipo": "Equipo", "total": "Total plantillas", "activas": "Activas",
+        "inactivas": "Inactivas", "con_envio_automatico": "Con push automático real"
+    })[["Equipo", "Total plantillas", "Activas", "Inactivas", "Con push automático real"]]
+    resumen_equipo = resumen_equipo.sort_values("Total plantillas", ascending=False)
+
+    fe1, fe2 = st.columns([1, 3])
+    with fe1:
+        equipos_pick = st.multiselect("Filtrar equipo", sorted(cat["equipo"].unique()), key="t5_equipo_pick")
+    resumen_f = resumen_equipo[resumen_equipo["Equipo"].isin(equipos_pick)] if equipos_pick else resumen_equipo
+
+    st.dataframe(resumen_f, use_container_width=True, hide_index=True,
+                 column_config={
+                     "Total plantillas": st.column_config.NumberColumn(),
+                     "Activas": st.column_config.ProgressColumn(
+                         min_value=0, max_value=int(resumen_equipo["Total plantillas"].max()), format="%d"),
+                 })
+    boton_descarga(resumen_equipo, "resumen_por_equipo.csv", "t5_dl_equipo")
+
+    fig = px.bar(resumen_equipo.melt(id_vars="Equipo", value_vars=["Activas", "Inactivas"],
+                                       var_name="Estado", value_name="n"),
+                 x="Equipo", y="n", color="Estado", barmode="stack",
+                 color_discrete_map={"Activas": OY_OK, "Inactivas": "#CBD5D9"}, text="n")
+    fig.update_layout(xaxis_title="", yaxis_title="N° plantillas", legend_title="")
+    st.plotly_chart(sfig(fig, 320), use_container_width=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
     st.markdown('<span class="sec">Hallazgos automáticos para toma de decisiones</span>', unsafe_allow_html=True)
 
     insights = []
