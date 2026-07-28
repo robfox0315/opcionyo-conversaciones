@@ -228,8 +228,10 @@ def find_data_file(name: str):
 #  (help.treble.ai/es/docs/data-warehouse) — nada de esto es adivinado.
 #  Tablas usadas: fact_deployment_daily, fact_sessions, dim_hsm.
 # ══════════════════════════════════════════════════════════════
-@st.cache_resource(ttl=180, show_spinner=False)
 def _dwh_client():
+    """Sin caché de conexión a propósito: el puente externo (que nunca falla) crea una
+    conexión nueva en cada consulta — replicamos exactamente esa arquitectura acá para
+    eliminar cualquier posibilidad de reutilizar una conexión que quedó en mal estado."""
     try:
         cfg = st.secrets["treble_dwh"]
     except Exception:
