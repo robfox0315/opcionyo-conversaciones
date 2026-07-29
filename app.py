@@ -388,7 +388,7 @@ def dwh_actividad_reciente(poll_name: str):
     explícito por poll, así que usamos la fecha del último envío real como proxy."""
     nombre_esc = poll_name.replace("'", "''")
     sql = f"""
-        SELECT sum(sent) AS enviados_365d, max(day) AS ultimo_envio, min(day) AS primer_envio
+        SELECT sum(sent) AS enviados_365d, toString(max(day)) AS ultimo_envio, toString(min(day)) AS primer_envio
         FROM client_analytics.fact_deployment_daily
         WHERE positionCaseInsensitive(trim(poll_name), '{nombre_esc}') > 0 AND day >= today() - 365
     """
@@ -425,7 +425,7 @@ def dwh_actividad_reciente_todos():
     """Última fecha de envío real y volumen, para TODAS las plantillas a la vez —
     una sola consulta en vez de una por fila, para no sobrecargar el DWH ni la app."""
     sql = """
-        SELECT poll_name, max(day) AS ultimo_envio, min(day) AS primer_envio, sum(sent) AS enviados_365d
+        SELECT poll_name, toString(max(day)) AS ultimo_envio, toString(min(day)) AS primer_envio, sum(sent) AS enviados_365d
         FROM client_analytics.fact_deployment_daily
         WHERE day >= today() - 365 AND poll_name != '' AND poll_name IS NOT NULL
         GROUP BY poll_name
@@ -1185,7 +1185,7 @@ with tab2:
                             nombre_esc = nombre.replace("'", "''")
                             sql = f"""
                                 SELECT poll_name, sum(sent) AS enviados, sum(delivered) AS entregados,
-                                       max(day) AS ultimo_envio, min(day) AS primer_envio
+                                       toString(max(day)) AS ultimo_envio, toString(min(day)) AS primer_envio
                                 FROM client_analytics.fact_deployment_daily
                                 WHERE positionCaseInsensitive(poll_name, '{nombre_esc}') > 0
                                 GROUP BY poll_name ORDER BY enviados DESC LIMIT 5
@@ -1213,7 +1213,7 @@ with tab2:
                 dias_nuevas = st.number_input("Días hacia atrás", min_value=1, value=7, step=1, key="t2_dias_nuevas")
                 if st.button("Buscar", key="t2_buscar_nuevas_btn"):
                     sql_nuevas = f"""
-                        SELECT poll_name, sum(sent) AS enviados, min(day) AS primera_fecha, max(day) AS ultima_fecha
+                        SELECT poll_name, sum(sent) AS enviados, toString(min(day)) AS primera_fecha, toString(max(day)) AS ultima_fecha
                         FROM client_analytics.fact_deployment_daily
                         WHERE day >= today() - {int(dias_nuevas)} AND poll_name != '' AND poll_name IS NOT NULL
                         GROUP BY poll_name ORDER BY primera_fecha DESC
@@ -2079,4 +2079,4 @@ st.markdown("<br><hr>", unsafe_allow_html=True)
 st.caption("Dashboard Conversaciones y Pushes Automáticos · Opción Yo — generado con NOVA. "
            "Datos: Data Warehouse de Treble en vivo (con respaldo automático a CSV si no hay conexión), "
            "catálogo interno de plantillas y export de árbol de conversación. "
-           "No incluye incidencias técnicas (dashboard aparte). · Build: 2026-07-29-HSM-FIX-02-DESANIDADO")
+           "No incluye incidencias técnicas (dashboard aparte). · Build: 2026-07-29-HSM-FIX-03-FECHAS")
