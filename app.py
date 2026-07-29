@@ -60,50 +60,36 @@ REGION = {"1": "EE.UU./Canadá", "34": "España", "52": "México", "58": "Venezu
           "351": "Portugal", "31": "Países Bajos", "54": "Argentina",
           "353": "Irlanda"}
 
-# ── CSS (idéntico lenguaje visual a los otros dashboards de Opción Yo, compatible con modo oscuro) ──
+# ── CSS (estilo sobrio, tarjetas planas con acento — mismo lenguaje visual que Reembolsos) ──
 st.markdown("""
 <style>
 :root{--oy-teal:#16B6C2;--oy-td:#0E8E99;--oy-blue:#2F80ED;
       --oy-ok:#27AE60;--oy-warn:#E5484D;--oy-amb:#F2A33C;--oy-ink:#16323A;}
-/* No forzamos fondo — dejamos que Streamlit use su propio tema (claro u oscuro) */
 .block-container{padding-top:1.5rem;}
-h1,h2,h3{color:var(--oy-teal);}
+h1,h2,h3{color:var(--oy-td);}
 [data-testid="stMetricValue"]{font-size:1.7rem!important;font-weight:800;}
 [data-testid="stMetricLabel"]{font-size:.78rem!important;font-weight:600;opacity:.85;}
 
-.oy-header{display:flex;align-items:center;gap:18px;
-  background:linear-gradient(100deg,var(--oy-td) 0%,var(--oy-teal) 48%,#27D0DC 100%);
-  padding:20px 28px;border-radius:16px;margin:2px 0 12px;
-  box-shadow:0 8px 22px rgba(22,182,194,.28);overflow:visible;}
-.oy-logo{font-weight:800;font-size:2rem;color:#fff;line-height:1.2;
-  letter-spacing:.4px;white-space:nowrap;padding:2px 18px 2px 0;
-  border-right:2px solid rgba(255,255,255,.4);display:flex;align-items:center;}
-.oy-logo span{color:#0A4750;margin-left:6px;}
-.oy-htxt{display:flex;flex-direction:column;justify-content:center;}
-.oy-htitle{color:#fff;font-weight:800;font-size:1.14rem;margin:0;line-height:1.3;}
-.oy-hsub{color:#EAFCFE;font-size:.82rem;margin:3px 0 0;line-height:1.2;}
+.oy-header{padding:4px 0 14px;border-bottom:2px solid rgba(120,120,120,.15);margin-bottom:14px;}
+.oy-logo{font-weight:800;font-size:1.5rem;line-height:1.2;letter-spacing:.2px;}
+.oy-logo span{color:var(--oy-td);}
+.oy-htitle{font-weight:700;font-size:1.05rem;margin:4px 0 0;opacity:.85;}
+.oy-hsub{font-size:.85rem;opacity:.7;margin:3px 0 0;}
 
-.sec{background:var(--oy-teal);color:#fff;padding:.4rem 1rem;
-  border-radius:8px;font-weight:700;margin:.2rem 0 .7rem;
-  font-size:.95rem;display:inline-block;}
-.sec.red{background:var(--oy-warn);}
-.sec.amb{background:var(--oy-amb);}
-.sec.ok{background:var(--oy-ok);}
-.sec.blue{background:var(--oy-blue);}
-.sec.purple{background:#7E57C2;}
+.sec{font-weight:700;font-size:.95rem;margin:.2rem 0 .6rem;padding-bottom:.25rem;
+  border-bottom:2px solid rgba(120,120,120,.18);display:block;}
 
-.kpi-grid{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px;}
-.kpi{flex:1;min-width:130px;background:var(--oy-teal);border-radius:12px;
-  padding:11px 13px;color:#fff;box-shadow:0 4px 12px rgba(22,182,194,.20);}
-.kpi.alt{background:var(--oy-blue);}
-.kpi.ok{background:var(--oy-ok);}
-.kpi.warn{background:var(--oy-warn);}
-.kpi.amber{background:var(--oy-amb);}
-.kpi.dark{background:var(--oy-td);}
-.kpi.purple{background:#7E57C2;}
-.kpi .l{font-size:.7rem;opacity:.9;font-weight:600;text-transform:uppercase;letter-spacing:.4px;}
+.kpi{border:1px solid rgba(120,120,120,.22);border-left:4px solid var(--oy-teal);
+  border-radius:8px;padding:11px 13px;background:rgba(120,120,120,.03);}
+.kpi.alt{border-left-color:var(--oy-blue);}
+.kpi.ok{border-left-color:var(--oy-ok);}
+.kpi.warn{border-left-color:var(--oy-warn);}
+.kpi.amber{border-left-color:var(--oy-amb);}
+.kpi.dark{border-left-color:var(--oy-td);}
+.kpi.purple{border-left-color:#7E57C2;}
+.kpi .l{font-size:.7rem;opacity:.75;font-weight:600;text-transform:uppercase;letter-spacing:.4px;}
 .kpi .v{font-size:1.5rem;font-weight:800;margin-top:2px;}
-.kpi .d{font-size:.69rem;opacity:.93;margin-top:2px;}
+.kpi .d{font-size:.69rem;opacity:.75;margin-top:2px;}
 
 .crit{background:#FDECEA;border-left:5px solid var(--oy-warn);
   padding:.6rem 1rem;border-radius:6px;margin-bottom:.7rem;color:#7a1f1c;}
@@ -115,15 +101,14 @@ h1,h2,h3{color:var(--oy-teal);}
   padding:.7rem 1rem;border-radius:6px;margin-bottom:.7rem;color:#0E6873;}
 
 .stTabs [data-baseweb="tab-list"]{gap:3px;flex-wrap:wrap;}
-.stTabs [data-baseweb="tab"]{background:#F1FAFB;border-radius:8px 8px 0 0;
-  padding:5px 10px;font-weight:600;color:var(--oy-td);}
-.stTabs [aria-selected="true"]{background:var(--oy-teal)!important;color:#fff!important;}
+.stTabs [data-baseweb="tab"]{border-radius:6px 6px 0 0;padding:5px 10px;font-weight:600;}
+.stTabs [aria-selected="true"]{border-bottom:3px solid var(--oy-teal)!important;}
 </style>
 """, unsafe_allow_html=True)
 
 st.markdown(
     '<div class="oy-header"><div class="oy-logo">opción<span> yo</span></div>'
-    '<div class="oy-htxt"><p class="oy-htitle">💬 Conversaciones y Pushes Automáticos</p></div></div>',
+    '<p class="oy-htitle">💬 Conversaciones y Pushes Automáticos</p></div>',
     unsafe_allow_html=True,
 )
 
@@ -344,7 +329,7 @@ def dwh_respuesta_push(poll_name: str, dias: int = 180):
             countIf(timestamp_delivered > '2000-01-01') AS entregados,
             countIf(timestamp_responded > '2000-01-01') AS respondidos
         FROM client_analytics.fact_deployment_status
-        WHERE poll_name = '{nombre_esc}' AND timestamps_eta >= now() - INTERVAL {int(dias)} DAY
+        WHERE positionCaseInsensitive(trim(poll_name), '{nombre_esc}') > 0 AND timestamps_eta >= now() - INTERVAL {int(dias)} DAY
     """
     return dwh_query(sql)
 
@@ -359,7 +344,7 @@ def dwh_respuestas_hsm(poll_name: str, dias: int = 180):
     nombre_esc = poll_name.replace("'", "''")
     sql_ids = f"""
         SELECT DISTINCT poll_id FROM client_analytics.fact_sessions
-        WHERE poll_name = '{nombre_esc}' AND created_at >= now() - INTERVAL {int(dias)} DAY
+        WHERE positionCaseInsensitive(trim(poll_name), '{nombre_esc}') > 0 AND created_at >= now() - INTERVAL {int(dias)} DAY
         LIMIT 2000
     """
     ids_df = dwh_query(sql_ids)
@@ -390,7 +375,7 @@ def dwh_estado_final_push(poll_name: str, dias: int = 180):
     sql = f"""
         SELECT status, count() AS n
         FROM client_analytics.fact_sessions
-        WHERE poll_name = '{nombre_esc}' AND created_at >= now() - INTERVAL {int(dias)} DAY
+        WHERE positionCaseInsensitive(trim(poll_name), '{nombre_esc}') > 0 AND created_at >= now() - INTERVAL {int(dias)} DAY
         GROUP BY status ORDER BY n DESC
     """
     return dwh_query(sql)
@@ -405,7 +390,32 @@ def dwh_actividad_reciente(poll_name: str):
     sql = f"""
         SELECT sum(sent) AS enviados_365d, max(day) AS ultimo_envio, min(day) AS primer_envio
         FROM client_analytics.fact_deployment_daily
-        WHERE poll_name = '{nombre_esc}' AND day >= today() - 365
+        WHERE positionCaseInsensitive(trim(poll_name), '{nombre_esc}') > 0 AND day >= today() - 365
+    """
+    return dwh_query(sql)
+
+
+@st.cache_data(ttl=300, show_spinner="⏳ Consultando motivos de no entrega…")
+def dwh_motivos_no_entrega(poll_name: str, dias: int = 180):
+    """Desglosa por qué un envío NO llegó, usando las columnas de motivo de falla reales
+    de fact_deployment_daily (no inventadas — están documentadas en el esquema del DWH)."""
+    nombre_esc = poll_name.replace("'", "''")
+    sql = f"""
+        SELECT
+            sum(sent) AS enviados,
+            sum(delivered) AS entregados,
+            sum(failure_rate_limit) AS limite_de_tasa,
+            sum(revoked) AS revocado,
+            sum(invalid_phone) AS telefono_invalido,
+            sum(missing_parameter) AS parametro_faltante,
+            sum(failure_human_handover) AS fallo_transferencia_agente,
+            sum(deactivated_poll_or_hsm) AS plantilla_desactivada,
+            sum(failure_general) AS falla_general,
+            sum(failure_unable_to_contact) AS no_se_pudo_contactar,
+            sum(optout) AS optout_usuario,
+            sum(meta_chose_not_deliver) AS meta_no_entrego
+        FROM client_analytics.fact_deployment_daily
+        WHERE positionCaseInsensitive(trim(poll_name), '{nombre_esc}') > 0 AND day >= today() - {int(dias)}
     """
     return dwh_query(sql)
 
@@ -1058,10 +1068,10 @@ with tab2:
     tabla = agg.rename(columns={
         "name_clean": "Push / Campaña", "envios": "Enviados", "entregados": "Entregados",
         "conversaciones_facturables": "Conversaciones facturables", "tasa_entrega_%": "Entrega %",
-        "tasa_respuesta_%": "Respuesta %",
+        "tasa_respuesta_%": "Respuesta %", "estado_catalogo": "Estado",
         "costo_estimado": "Costo (USD)", "n_batches": "Tandas de envío", "equipo": "Equipo"
     })
-    cols_tabla = ["Push / Campaña", "Activo", "Equipo",
+    cols_tabla = ["Push / Campaña", "Activo", "Estado", "Equipo",
                   "Enviados", "Entregados", "Conversaciones facturables", "Costo (USD)",
                   "Entrega %", "Respuesta %", "Tandas de envío"]
     tabla = tabla[cols_tabla]
@@ -1866,6 +1876,45 @@ with tab7:
                             f"{safe_pct(entregados - respondidos, entregados)}% de entregados", "dark"),
                         unsafe_allow_html=True)
 
+            # ── ¿Por qué no llegó el mensaje? Motivos reales de no entrega ──
+            no_entregados = enviados - entregados
+            if no_entregados > 0:
+                motivos_df = dwh_motivos_no_entrega(push_pick)
+                if motivos_df is not None and not motivos_df.empty:
+                    m = motivos_df.iloc[0]
+                    etiquetas = {
+                        "limite_de_tasa": "Límite de tasa (rate limit)",
+                        "revocado": "Revocado",
+                        "telefono_invalido": "Teléfono inválido",
+                        "parametro_faltante": "Parámetro faltante",
+                        "fallo_transferencia_agente": "Falla al transferir a agente",
+                        "plantilla_desactivada": "Plantilla desactivada",
+                        "falla_general": "Falla general",
+                        "no_se_pudo_contactar": "No se pudo contactar",
+                        "optout_usuario": "Usuario dio opt-out",
+                        "meta_no_entrego": "Meta no entregó",
+                    }
+                    motivos_vals = {etiquetas[k]: int(m[k]) for k in etiquetas if pd.notna(m[k]) and int(m[k]) > 0}
+                    st.markdown('<span class="sec red">¿Por qué no llegó?</span>', unsafe_allow_html=True)
+                    if motivos_vals:
+                        motivos_serie = pd.Series(motivos_vals).sort_values(ascending=False)
+                        clasificados = int(motivos_serie.sum())
+                        sin_clasificar = max(0, no_entregados - clasificados)
+                        if sin_clasificar > 0:
+                            motivos_serie["Sin motivo específico registrado"] = sin_clasificar
+                        motivos_df_show = motivos_serie.reset_index()
+                        motivos_df_show.columns = ["Motivo", "Cantidad"]
+                        motivos_df_show["% del total no entregado"] = (motivos_df_show["Cantidad"] / no_entregados * 100).round(1)
+                        fig = px.bar(motivos_df_show.sort_values("Cantidad"), x="Cantidad", y="Motivo",
+                                     orientation="h", color_discrete_sequence=[OY_WARN], text="Cantidad")
+                        fig.update_traces(texttemplate="%{text:,}", textposition="outside")
+                        fig.update_layout(xaxis_title=f"De {no_entregados:,} no entregados", yaxis_title="")
+                        st.plotly_chart(sfig(fig, 280), use_container_width=True)
+                        boton_descarga(motivos_df_show, f"motivos_no_entrega_{push_pick}.csv", "t7_dl_motivos")
+                    else:
+                        st.caption(f"{no_entregados:,} no entregados, pero Treble no registró un motivo "
+                                   f"específico para ninguno (columnas de falla en cero).")
+
             # ── ¿El catálogo dice lo mismo que Treble? ──
             estado_catalogo_push = cat[cat["conversacion"] == push_pick]
             estado_catalogo_txt = estado_catalogo_push.iloc[0]["estado"] if len(estado_catalogo_push) else "?"
@@ -1904,6 +1953,19 @@ with tab7:
                             f'respuesta, fact_hsm_responses solo las que calzan con un botón.</div>',
                             unsafe_allow_html=True
                         )
+
+                # Resumen de % por categoría (Confirmar / Reagendar / Otros) — pedido por gerencia
+                total_resp_hsm = int(hsm_df["respuestas"].sum())
+                top_categorias = hsm_df.groupby("answer_text")["respuestas"].sum().sort_values(ascending=False)
+                top3 = top_categorias.head(3)
+                otros_n = total_resp_hsm - int(top3.sum())
+                resumen_pct = list(top3.items())
+                if otros_n > 0:
+                    resumen_pct.append(("Otros", otros_n))
+                cols_pct = st.columns(len(resumen_pct))
+                for col, (etiqueta, n) in zip(cols_pct, resumen_pct):
+                    col.markdown(kpi(etiqueta[:22], f"{safe_pct(n, total_resp_hsm)}%", f"{n:,} respuestas", "alt"),
+                                 unsafe_allow_html=True)
 
                 pasos_disponibles = sorted(hsm_df["hsm_name"].unique())
                 if len(pasos_disponibles) > 1:
