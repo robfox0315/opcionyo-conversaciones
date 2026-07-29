@@ -65,13 +65,13 @@ st.markdown("""
 <style>
 :root{--oy-teal:#16B6C2;--oy-td:#0E8E99;--oy-blue:#2F80ED;
       --oy-ok:#27AE60;--oy-warn:#E5484D;--oy-amb:#F2A33C;--oy-ink:#16323A;}
-.block-container{padding-top:1.5rem;}
+.block-container{padding-top:2.5rem;}
 h1,h2,h3{color:var(--oy-td);}
 [data-testid="stMetricValue"]{font-size:1.7rem!important;font-weight:800;}
 [data-testid="stMetricLabel"]{font-size:.78rem!important;font-weight:600;opacity:.85;}
 
-.oy-header{padding:4px 0 14px;border-bottom:2px solid rgba(120,120,120,.15);margin-bottom:14px;}
-.oy-logo{font-weight:800;font-size:1.5rem;line-height:1.2;letter-spacing:.2px;}
+.oy-header{padding:14px 0;line-height:1.6;border-bottom:2px solid rgba(120,120,120,.15);margin-bottom:14px;}
+.oy-logo{font-weight:800;font-size:1.5rem;line-height:1.6;letter-spacing:.2px;}
 .oy-logo span{color:var(--oy-td);}
 .oy-htitle{font-weight:700;font-size:1.05rem;margin:4px 0 0;opacity:.85;}
 .oy-hsub{font-size:.85rem;opacity:.7;margin:3px 0 0;}
@@ -319,7 +319,7 @@ def dwh_sessions(dias=32):
 
 
 @st.cache_data(ttl=300, show_spinner="⏳ Consultando tasa de respuesta real…")
-def dwh_respuesta_push(poll_name: str, dias: int = 180):
+def dwh_respuesta_push(poll_name: str, dias: int = 365):
     """Tasa de entrega/respuesta real y granular para un push específico, desde fact_deployment_status
     (una fila por intento de envío individual — el dato más preciso que existe)."""
     nombre_esc = poll_name.replace("'", "''")
@@ -335,16 +335,16 @@ def dwh_respuesta_push(poll_name: str, dias: int = 180):
 
 
 @st.cache_data(ttl=300, show_spinner="⏳ Consultando qué responden los usuarios…")
-def dwh_respuestas_hsm(poll_name: str, dias: int = 180):
+def dwh_respuestas_hsm(poll_name: str, dias: int = 365):
     """Qué contestan los usuarios (botones/texto) dentro del flujo de un push específico,
     desglosado por hsm_name (para poder ver 'primer mensaje' vs 'segundo mensaje' por separado).
-    fact_hsm_responses se filtra por poll_id, así que primero lo buscamos en fact_sessions.
-    OJO: el LIMIT del lookup de poll_id estaba en 20 y cortaba instancias reales — se subió
-    a 2000 para no perder datos (era la causa de que la Sección 2 no cuadrara con la 1)."""
+    fact_hsm_responses se filtra por poll_id, así que primero lo buscamos en
+    fact_deployment_daily — a diferencia de fact_sessions, esta tabla tiene TODOS los pushes
+    (incluidos los de una sola vía que no generan un 'flujo de conversación' registrado)."""
     nombre_esc = poll_name.replace("'", "''")
     sql_ids = f"""
-        SELECT DISTINCT poll_id FROM client_analytics.fact_sessions
-        WHERE positionCaseInsensitive(trim(poll_name), '{nombre_esc}') > 0 AND created_at >= now() - INTERVAL {int(dias)} DAY
+        SELECT DISTINCT poll_id FROM client_analytics.fact_deployment_daily
+        WHERE positionCaseInsensitive(trim(poll_name), '{nombre_esc}') > 0 AND day >= today() - {int(dias)}
         LIMIT 2000
     """
     ids_df = dwh_query(sql_ids)
@@ -369,7 +369,7 @@ def dwh_respuestas_hsm(poll_name: str, dias: int = 180):
 
 
 @st.cache_data(ttl=300, show_spinner="⏳ Consultando dónde termina la conversación…")
-def dwh_estado_final_push(poll_name: str, dias: int = 180):
+def dwh_estado_final_push(poll_name: str, dias: int = 365):
     """En qué estado termina el flujo disparado por este push (HumanHandover, Rating, etc.)."""
     nombre_esc = poll_name.replace("'", "''")
     sql = f"""
@@ -396,7 +396,7 @@ def dwh_actividad_reciente(poll_name: str):
 
 
 @st.cache_data(ttl=300, show_spinner="⏳ Consultando motivos de no entrega…")
-def dwh_motivos_no_entrega(poll_name: str, dias: int = 180):
+def dwh_motivos_no_entrega(poll_name: str, dias: int = 365):
     """Desglosa por qué un envío NO llegó, usando las columnas de motivo de falla reales
     de fact_deployment_daily (no inventadas — están documentadas en el esquema del DWH)."""
     nombre_esc = poll_name.replace("'", "''")
@@ -1058,7 +1058,7 @@ with tab2:
                     "warn" if (inactivos_con_envio or _mismatches) else "ok"), unsafe_allow_html=True)
     mas_caro = agg.iloc[0] if len(agg) else None
     if mas_caro is not None:
-        c4.markdown(kpi("Push más costoso", fmt_usd(mas_caro["costo_estimado"]), mas_caro["name_clean"][:28], "amber"),
+        c4.markdown(kpi("Push más costoso", fmt_usd(mas_caro["costo_estimado"]), mas_caro["name_clean"][:42], "amber"),
                     unsafe_allow_html=True)
     c5.markdown(kpi("Fuente de datos", "DWH en vivo" if gr.attrs.get("fuente") == "dwh" else "CSV (respaldo)", "",
                     "ok" if gr.attrs.get("fuente") == "dwh" else "warn"), unsafe_allow_html=True)
@@ -1622,7 +1622,7 @@ with tab6:
         if len(rank_global):
             top_row = rank_global.iloc[0]
             c3.markdown(kpi("Plantilla con más fuga", f"{int(top_row['fuga_real']):,}",
-                            top_row["Plantilla"][:30], "dark"), unsafe_allow_html=True)
+                            top_row["Plantilla"][:42], "dark"), unsafe_allow_html=True)
         st.caption("Fuga real = cliente tenía una opción para responder y no lo hizo (excluye avisos de una sola vía).")
 
         st.markdown("<br>", unsafe_allow_html=True)
@@ -1861,13 +1861,13 @@ with tab7:
         st.markdown('<span class="sec blue">1️⃣ Respuesta real</span>', unsafe_allow_html=True)
         resp_df = dwh_respuesta_push(push_pick)
         if resp_df is None or resp_df.empty or resp_df["enviados"].iloc[0] == 0:
-            st.caption(f"Sin envíos de \"{push_pick}\" en los últimos 180 días.")
+            st.caption(f"Sin envíos de \"{push_pick}\" en los últimos 365 días.")
         else:
             enviados = int(resp_df["enviados"].iloc[0])
             entregados = int(resp_df["entregados"].iloc[0])
             respondidos = int(resp_df["respondidos"].iloc[0])
             c1, c2, c3, c4 = st.columns(4)
-            c1.markdown(kpi("Enviados", f"{enviados:,}", "últimos 180 días", ""), unsafe_allow_html=True)
+            c1.markdown(kpi("Enviados", f"{enviados:,}", "últimos 365 días", ""), unsafe_allow_html=True)
             c2.markdown(kpi("Entregados", f"{entregados:,}", f"{safe_pct(entregados, enviados)}%", "ok"),
                         unsafe_allow_html=True)
             c3.markdown(kpi("Respondidos", f"{respondidos:,}", f"{safe_pct(respondidos, entregados)}% de entregados",
@@ -1964,7 +1964,7 @@ with tab7:
                     resumen_pct.append(("Otros", otros_n))
                 cols_pct = st.columns(len(resumen_pct))
                 for col, (etiqueta, n) in zip(cols_pct, resumen_pct):
-                    col.markdown(kpi(etiqueta[:22], f"{safe_pct(n, total_resp_hsm)}%", f"{n:,} respuestas", "alt"),
+                    col.markdown(kpi(etiqueta[:30], f"{safe_pct(n, total_resp_hsm)}%", f"{n:,} respuestas", "alt"),
                                  unsafe_allow_html=True)
 
                 pasos_disponibles = sorted(hsm_df["hsm_name"].unique())
