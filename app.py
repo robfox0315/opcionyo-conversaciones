@@ -1860,8 +1860,11 @@ with tab7:
         # ── 1) Tasa de respuesta real, granular (fact_deployment_status) ──
         st.markdown('<span class="sec blue">1️⃣ Respuesta real</span>', unsafe_allow_html=True)
         resp_df = dwh_respuesta_push(push_pick)
+        respondidos = None  # se usa más abajo en la reconciliación de la Sección 2, si existe
         if resp_df is None or resp_df.empty or resp_df["enviados"].iloc[0] == 0:
-            st.caption(f"Sin envíos de \"{push_pick}\" en los últimos 365 días.")
+            st.caption(f"Sin datos de entrega individual de \"{push_pick}\" en fact_deployment_status "
+                       f"(365 días) — puede seguir teniendo datos en las secciones de abajo, que son "
+                       f"independientes de esta.")
         else:
             enviados = int(resp_df["enviados"].iloc[0])
             entregados = int(resp_df["entregados"].iloc[0])
@@ -1915,92 +1918,92 @@ with tab7:
                         st.caption(f"{no_entregados:,} no entregados, pero Treble no registró un motivo "
                                    f"específico para ninguno (columnas de falla en cero).")
 
-            # ── ¿El catálogo dice lo mismo que Treble? ──
-            estado_catalogo_push = cat[cat["conversacion"] == push_pick]
-            estado_catalogo_txt = estado_catalogo_push.iloc[0]["estado"] if len(estado_catalogo_push) else "?"
-            act_df = dwh_actividad_reciente(push_pick)
-            if act_df is not None and not act_df.empty and pd.notna(act_df["ultimo_envio"].iloc[0]):
-                ultimo_envio = pd.to_datetime(act_df["ultimo_envio"].iloc[0]).date()
-                dias_desde_ultimo = (pd.Timestamp.now().date() - ultimo_envio).days
-                esta_activo_real = dias_desde_ultimo <= 30
-                catalogo_dice_activo = estado_catalogo_txt in ("Push Activo", "Manual activo")
-                if esta_activo_real != catalogo_dice_activo:
+        # ── ¿El catálogo dice lo mismo que Treble? (independiente de la Sección 1) ──
+        estado_catalogo_push = cat[cat["conversacion"] == push_pick]
+        estado_catalogo_txt = estado_catalogo_push.iloc[0]["estado"] if len(estado_catalogo_push) else "?"
+        act_df = dwh_actividad_reciente(push_pick)
+        if act_df is not None and not act_df.empty and pd.notna(act_df["ultimo_envio"].iloc[0]):
+            ultimo_envio = pd.to_datetime(act_df["ultimo_envio"].iloc[0]).date()
+            dias_desde_ultimo = (pd.Timestamp.now().date() - ultimo_envio).days
+            esta_activo_real = dias_desde_ultimo <= 30
+            catalogo_dice_activo = estado_catalogo_txt in ("Push Activo", "Manual activo")
+            if esta_activo_real != catalogo_dice_activo:
+                st.markdown(
+                    f'<div class="crit">🚨 Catálogo dice "{estado_catalogo_txt}" — último envío real: '
+                    f'{ultimo_envio} ({dias_desde_ultimo}d atrás). Actualizar catálogo.</div>',
+                    unsafe_allow_html=True
+                )
+            else:
+                st.caption(f"✅ Consistente — último envío: {ultimo_envio} ({dias_desde_ultimo}d atrás).")
+
+        # ── 2) Qué contestan (fact_hsm_responses) — independiente de la Sección 1 ──
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown('<span class="sec amb">2️⃣ Qué contestan (por paso)</span>', unsafe_allow_html=True)
+        hsm_df, hsm_total = dwh_respuestas_hsm(push_pick)
+        if hsm_df is None or hsm_df.empty:
+            st.caption("Sin respuestas estructuradas (aviso de una sola vía, o texto libre sin clasificar).")
+        else:
+            # Reconciliación explícita contra la Sección 1, solo si esa sección tuvo datos.
+            usuarios_unicos_hsm = int(hsm_total["usuarios_unicos"].iloc[0]) if hsm_total is not None and not hsm_total.empty else None
+            if usuarios_unicos_hsm is not None and respondidos is not None:
+                diff = usuarios_unicos_hsm - respondidos
+                if abs(diff) <= max(1, round(respondidos * 0.02)):
+                    st.caption(f"✅ Cuadra: {usuarios_unicos_hsm:,} vs. {respondidos:,} respondidos (diferencia {diff:+,}).")
+                else:
                     st.markdown(
-                        f'<div class="crit">🚨 Catálogo dice "{estado_catalogo_txt}" — último envío real: '
-                        f'{ultimo_envio} ({dias_desde_ultimo}d atrás). Actualizar catálogo.</div>',
+                        f'<div class="alrt">⚠️ {usuarios_unicos_hsm:,} usuarios únicos vs. {respondidos:,} '
+                        f'"respondidos" (diferencia {diff:+,}) — fact_deployment_status cuenta cualquier '
+                        f'respuesta, fact_hsm_responses solo las que calzan con un botón.</div>',
                         unsafe_allow_html=True
                     )
-                else:
-                    st.caption(f"✅ Consistente — último envío: {ultimo_envio} ({dias_desde_ultimo}d atrás).")
 
-            # ── 2) Qué contestan (fact_hsm_responses) — desglosado por paso, y reconciliado ──
-            st.markdown("<br>", unsafe_allow_html=True)
-            st.markdown('<span class="sec amb">2️⃣ Qué contestan (por paso)</span>', unsafe_allow_html=True)
-            hsm_df, hsm_total = dwh_respuestas_hsm(push_pick)
-            if hsm_df is None or hsm_df.empty:
-                st.caption("Sin respuestas estructuradas (aviso de una sola vía, o texto libre sin clasificar).")
+            # Resumen de % por categoría (Confirmar / Reagendar / Otros) — pedido por gerencia
+            total_resp_hsm = int(hsm_df["respuestas"].sum())
+            top_categorias = hsm_df.groupby("answer_text")["respuestas"].sum().sort_values(ascending=False)
+            top3 = top_categorias.head(3)
+            otros_n = total_resp_hsm - int(top3.sum())
+            resumen_pct = list(top3.items())
+            if otros_n > 0:
+                resumen_pct.append(("Otros", otros_n))
+            cols_pct = st.columns(len(resumen_pct))
+            for col, (etiqueta, n) in zip(cols_pct, resumen_pct):
+                col.markdown(kpi(etiqueta[:30], f"{safe_pct(n, total_resp_hsm)}%", f"{n:,} respuestas", "alt"),
+                             unsafe_allow_html=True)
+
+            pasos_disponibles = sorted(hsm_df["hsm_name"].unique())
+            if len(pasos_disponibles) > 1:
+                paso_pick = st.selectbox(f"{len(pasos_disponibles)} pasos con respuesta — ver:",
+                                          ["Todos los pasos"] + pasos_disponibles, key="t7_paso")
             else:
-                # Reconciliación explícita contra la Sección 1 — si no cuadra, lo decimos, no lo escondemos.
-                usuarios_unicos_hsm = int(hsm_total["usuarios_unicos"].iloc[0]) if hsm_total is not None and not hsm_total.empty else None
-                if usuarios_unicos_hsm is not None:
-                    diff = usuarios_unicos_hsm - respondidos
-                    if abs(diff) <= max(1, round(respondidos * 0.02)):
-                        st.caption(f"✅ Cuadra: {usuarios_unicos_hsm:,} vs. {respondidos:,} respondidos (diferencia {diff:+,}).")
-                    else:
-                        st.markdown(
-                            f'<div class="alrt">⚠️ {usuarios_unicos_hsm:,} usuarios únicos vs. {respondidos:,} '
-                            f'"respondidos" (diferencia {diff:+,}) — fact_deployment_status cuenta cualquier '
-                            f'respuesta, fact_hsm_responses solo las que calzan con un botón.</div>',
-                            unsafe_allow_html=True
-                        )
+                paso_pick = "Todos los pasos"
 
-                # Resumen de % por categoría (Confirmar / Reagendar / Otros) — pedido por gerencia
-                total_resp_hsm = int(hsm_df["respuestas"].sum())
-                top_categorias = hsm_df.groupby("answer_text")["respuestas"].sum().sort_values(ascending=False)
-                top3 = top_categorias.head(3)
-                otros_n = total_resp_hsm - int(top3.sum())
-                resumen_pct = list(top3.items())
-                if otros_n > 0:
-                    resumen_pct.append(("Otros", otros_n))
-                cols_pct = st.columns(len(resumen_pct))
-                for col, (etiqueta, n) in zip(cols_pct, resumen_pct):
-                    col.markdown(kpi(etiqueta[:30], f"{safe_pct(n, total_resp_hsm)}%", f"{n:,} respuestas", "alt"),
-                                 unsafe_allow_html=True)
+            hsm_mostrar = hsm_df if paso_pick == "Todos los pasos" else hsm_df[hsm_df["hsm_name"] == paso_pick]
+            resumen_paso = hsm_mostrar.groupby("answer_text")["respuestas"].sum().reset_index().sort_values("respuestas")
+            fig = px.bar(resumen_paso.tail(15), x="respuestas", y="answer_text",
+                         orientation="h", color_discrete_sequence=[OY_AMBER], text="respuestas")
+            fig.update_traces(texttemplate="%{text:,}", textposition="outside")
+            layout_kwargs = dict(xaxis_title="Respuestas", yaxis_title="")
+            if paso_pick != "Todos los pasos":
+                layout_kwargs["title"] = paso_pick
+            fig.update_layout(**layout_kwargs)
+            st.plotly_chart(sfig(fig, 380), use_container_width=True)
+            st.caption(f"Total de respuestas en este gráfico: {int(resumen_paso['respuestas'].sum()):,}")
+            boton_descarga(hsm_df, f"respuestas_{push_pick}.csv", "t7_dl_hsm")
 
-                pasos_disponibles = sorted(hsm_df["hsm_name"].unique())
-                if len(pasos_disponibles) > 1:
-                    paso_pick = st.selectbox(f"{len(pasos_disponibles)} pasos con respuesta — ver:",
-                                              ["Todos los pasos"] + pasos_disponibles, key="t7_paso")
-                else:
-                    paso_pick = "Todos los pasos"
-
-                hsm_mostrar = hsm_df if paso_pick == "Todos los pasos" else hsm_df[hsm_df["hsm_name"] == paso_pick]
-                resumen_paso = hsm_mostrar.groupby("answer_text")["respuestas"].sum().reset_index().sort_values("respuestas")
-                fig = px.bar(resumen_paso.tail(15), x="respuestas", y="answer_text",
-                             orientation="h", color_discrete_sequence=[OY_AMBER], text="respuestas")
-                fig.update_traces(texttemplate="%{text:,}", textposition="outside")
-                layout_kwargs = dict(xaxis_title="Respuestas", yaxis_title="")
-                if paso_pick != "Todos los pasos":
-                    layout_kwargs["title"] = paso_pick
-                fig.update_layout(**layout_kwargs)
-                st.plotly_chart(sfig(fig, 380), use_container_width=True)
-                st.caption(f"Total de respuestas en este gráfico: {int(resumen_paso['respuestas'].sum()):,}")
-                boton_descarga(hsm_df, f"respuestas_{push_pick}.csv", "t7_dl_hsm")
-
-            # ── 3) Dónde termina (fact_sessions status) ──
-            st.markdown("<br>", unsafe_allow_html=True)
-            st.markdown('<span class="sec purple">3️⃣ Dónde termina la conversación</span>', unsafe_allow_html=True)
-            estado_df = dwh_estado_final_push(push_pick)
-            if estado_df is None or estado_df.empty:
-                st.caption("Sin datos de estado final.")
-            else:
-                fig = px.pie(estado_df, names="status", values="n", hole=.5, color_discrete_sequence=COLOR_SEQ)
-                st.plotly_chart(sfig(fig, 340), use_container_width=True)
-                boton_descarga(estado_df, f"estado_final_{push_pick}.csv", "t7_dl_estado")
-                if "HumanHandover" in estado_df["status"].values:
-                    pct_agente = safe_pct(estado_df[estado_df["status"] == "HumanHandover"]["n"].iloc[0],
-                                           estado_df["n"].sum())
-                    st.caption(f"{pct_agente}% escala a agente humano.")
+        # ── 3) Dónde termina (fact_sessions status) — independiente de la Sección 1 ──
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown('<span class="sec purple">3️⃣ Dónde termina la conversación</span>', unsafe_allow_html=True)
+        estado_df = dwh_estado_final_push(push_pick)
+        if estado_df is None or estado_df.empty:
+            st.caption("Sin datos de estado final.")
+        else:
+            fig = px.pie(estado_df, names="status", values="n", hole=.5, color_discrete_sequence=COLOR_SEQ)
+            st.plotly_chart(sfig(fig, 340), use_container_width=True)
+            boton_descarga(estado_df, f"estado_final_{push_pick}.csv", "t7_dl_estado")
+            if "HumanHandover" in estado_df["status"].values:
+                pct_agente = safe_pct(estado_df[estado_df["status"] == "HumanHandover"]["n"].iloc[0],
+                                       estado_df["n"].sum())
+                st.caption(f"{pct_agente}% escala a agente humano.")
 
         # ── 4) Árbol completo, si este push está en el export de Treble ──
         st.markdown("<br>", unsafe_allow_html=True)
@@ -2076,4 +2079,4 @@ st.markdown("<br><hr>", unsafe_allow_html=True)
 st.caption("Dashboard Conversaciones y Pushes Automáticos · Opción Yo — generado con NOVA. "
            "Datos: Data Warehouse de Treble en vivo (con respaldo automático a CSV si no hay conexión), "
            "catálogo interno de plantillas y export de árbol de conversación. "
-           "No incluye incidencias técnicas (dashboard aparte). · Build: 2026-07-29-HSM-FIX-01")
+           "No incluye incidencias técnicas (dashboard aparte). · Build: 2026-07-29-HSM-FIX-02-DESANIDADO")
