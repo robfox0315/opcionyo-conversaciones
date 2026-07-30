@@ -329,7 +329,7 @@ def dwh_respuesta_push(poll_name: str, dias: int = 365):
             countIf(timestamp_delivered > '2000-01-01') AS entregados,
             countIf(timestamp_responded > '2000-01-01') AS respondidos
         FROM client_analytics.fact_deployment_status
-        WHERE positionCaseInsensitive(trim(poll_name), '{nombre_esc}') > 0 AND timestamps_eta >= now() - INTERVAL {int(dias)} DAY
+        WHERE (positionCaseInsensitive(trim(poll_name), '{nombre_esc}') > 0 OR positionCaseInsensitive('{nombre_esc}', trim(poll_name)) > 0) AND timestamps_eta >= now() - INTERVAL {int(dias)} DAY
     """
     return dwh_query(sql)
 
@@ -344,7 +344,7 @@ def dwh_respuestas_hsm(poll_name: str, dias: int = 365):
     nombre_esc = poll_name.replace("'", "''")
     sql_ids = f"""
         SELECT DISTINCT poll_id FROM client_analytics.fact_deployment_daily
-        WHERE positionCaseInsensitive(trim(poll_name), '{nombre_esc}') > 0 AND day >= today() - {int(dias)}
+        WHERE (positionCaseInsensitive(trim(poll_name), '{nombre_esc}') > 0 OR positionCaseInsensitive('{nombre_esc}', trim(poll_name)) > 0) AND day >= today() - {int(dias)}
         LIMIT 2000
     """
     ids_df = dwh_query(sql_ids)
@@ -375,7 +375,7 @@ def dwh_estado_final_push(poll_name: str, dias: int = 365):
     sql = f"""
         SELECT status, count() AS n
         FROM client_analytics.fact_sessions
-        WHERE positionCaseInsensitive(trim(poll_name), '{nombre_esc}') > 0 AND created_at >= now() - INTERVAL {int(dias)} DAY
+        WHERE (positionCaseInsensitive(trim(poll_name), '{nombre_esc}') > 0 OR positionCaseInsensitive('{nombre_esc}', trim(poll_name)) > 0) AND created_at >= now() - INTERVAL {int(dias)} DAY
         GROUP BY status ORDER BY n DESC
     """
     return dwh_query(sql)
@@ -390,7 +390,7 @@ def dwh_actividad_reciente(poll_name: str):
     sql = f"""
         SELECT sum(sent) AS enviados_365d, toString(max(day)) AS ultimo_envio, toString(min(day)) AS primer_envio
         FROM client_analytics.fact_deployment_daily
-        WHERE positionCaseInsensitive(trim(poll_name), '{nombre_esc}') > 0 AND day >= today() - 365
+        WHERE (positionCaseInsensitive(trim(poll_name), '{nombre_esc}') > 0 OR positionCaseInsensitive('{nombre_esc}', trim(poll_name)) > 0) AND day >= today() - 365
     """
     return dwh_query(sql)
 
@@ -415,7 +415,7 @@ def dwh_motivos_no_entrega(poll_name: str, dias: int = 365):
             sum(optout) AS optout_usuario,
             sum(meta_chose_not_deliver) AS meta_no_entrego
         FROM client_analytics.fact_deployment_daily
-        WHERE positionCaseInsensitive(trim(poll_name), '{nombre_esc}') > 0 AND day >= today() - {int(dias)}
+        WHERE (positionCaseInsensitive(trim(poll_name), '{nombre_esc}') > 0 OR positionCaseInsensitive('{nombre_esc}', trim(poll_name)) > 0) AND day >= today() - {int(dias)}
     """
     return dwh_query(sql)
 
@@ -586,6 +586,10 @@ def load_catalog():
     if "nota_interna" not in df.columns:
         df["nota_interna"] = ""
     df["nota_interna"] = df["nota_interna"].fillna("")
+    if "poll_name_dwh_real" not in df.columns:
+        df["poll_name_dwh_real"] = None
+    if "confirmado_dwh_365d" not in df.columns:
+        df["confirmado_dwh_365d"] = df["poll_name_dwh_real"].notna()
     if "en_uso_real" not in df.columns:
         df["en_uso_real"] = False
     else:
@@ -1383,9 +1387,10 @@ with tab4:
     if buscar:
         cat_f = cat_f[cat_f["conversacion"].str.contains(buscar, case=False, na=False)]
 
-    cat_f_tabla = cat_f[["conversacion", "plantilla", "tipo", "proposito", "estado", "equipo",
+    cat_f_tabla = cat_f[["conversacion", "poll_name_dwh_real", "plantilla", "tipo", "proposito", "estado", "equipo",
                          "envios_historicos", "entregados_historicos", "nota_interna", "auditoria"]].rename(columns={
-        "conversacion": "Conversación / Campaña", "plantilla": "HSM / Plantilla",
+        "conversacion": "Conversación / Campaña", "poll_name_dwh_real": "Nombre exacto en Treble",
+        "plantilla": "HSM / Plantilla",
         "tipo": "Tipo", "proposito": "Para qué se envía", "estado": "Estado", "equipo": "Equipo",
         "envios_historicos": "Envíos reales", "entregados_historicos": "Entregados reales",
         "nota_interna": "Nota del equipo", "auditoria": "Auditoría"
@@ -1393,6 +1398,9 @@ with tab4:
     st.dataframe(cat_f_tabla, use_container_width=True, hide_index=True, height=420,
                  column_config={
                      "Envíos reales": st.column_config.NumberColumn(help="Cruce directo con Treble — no estimado."),
+                     "Nombre exacto en Treble": st.column_config.TextColumn(
+                         help="Nombre real confirmado cruzando 224 plantillas de Treble contra el catálogo. "
+                              "Vacío = no se encontró coincidencia (probablemente sin envíos en 365 días)."),
                  })
     boton_descarga(cat_f_tabla, "catalogo_plantillas.csv", "t4_dl_catalogo")
 
@@ -1854,12 +1862,46 @@ with tab7:
     if not _dwh_ok:
         st.markdown(f'<div class="alrt">Data Warehouse no conectado: {_dwh_msg}</div>', unsafe_allow_html=True)
     else:
-        push_opciones = sorted(cat[cat["activo"]]["conversacion"].unique())
-        push_pick = st.selectbox("Elegí un push para analizar", push_opciones, key="t7_push")
+        # Chequeo masivo de actividad real (una sola consulta) para marcar en el selector
+        # cuáles plantillas activas del catálogo SÍ tienen historial real en el DWH.
+        _activ_todos = dwh_actividad_reciente_todos()
+        _nombres_con_data = set()
+        if _activ_todos is not None and not _activ_todos.empty:
+            _activ_norm = [_norm_txt(n) for n in _activ_todos["poll_name"]]
+            for nombre_cat in cat[cat["activo"]]["conversacion"]:
+                nn = _norm_txt(nombre_cat)
+                if any(nn in an or an in nn for an in _activ_norm):
+                    _nombres_con_data.add(nombre_cat)
+
+        push_opciones_raw = sorted(cat[cat["activo"]]["conversacion"].unique())
+        etiquetas_push = {
+            (f"✅ {n}" if n in _nombres_con_data else f"⚠️ {n} (sin envíos en 365d)"): n
+            for n in push_opciones_raw
+        }
+        push_label = st.selectbox("Elegí un push para analizar (⚠️ = sin envíos reales en el último año)",
+                                   sorted(etiquetas_push.keys()), key="t7_push")
+        push_pick = etiquetas_push[push_label]
+
+        # Usamos el nombre EXACTO ya confirmado contra Treble (columna poll_name_dwh_real del
+        # catálogo) para las consultas — más preciso y rápido que la búsqueda flexible en cada
+        # carga. Si no lo tenemos verificado, caemos al nombre del catálogo con match flexible.
+        _fila_cat_push = cat[cat["conversacion"] == push_pick]
+        _real = _fila_cat_push.iloc[0]["poll_name_dwh_real"] if len(_fila_cat_push) else None
+        push_query = _real if pd.notna(_real) and _real else push_pick
+
+        if push_pick not in _nombres_con_data:
+            st.markdown(
+                f'<div class="alrt">⚠️ <b>"{push_pick}" no tiene ningún envío registrado en el Data '
+                f'Warehouse en los últimos 365 días</b>, aunque el catálogo lo marca como activo. '
+                f'No es un error de esta pestaña — confirmado cruzando las {len(push_opciones_raw)} '
+                f'plantillas activas del catálogo contra el historial completo de Treble. '
+                f'Esta plantilla probablemente ya no se está enviando de verdad; conviene revisar '
+                f'su estado con el equipo.</div>', unsafe_allow_html=True
+            )
 
         # ── 1) Tasa de respuesta real, granular (fact_deployment_status) ──
         st.markdown('<span class="sec blue">1️⃣ Respuesta real</span>', unsafe_allow_html=True)
-        resp_df = dwh_respuesta_push(push_pick)
+        resp_df = dwh_respuesta_push(push_query)
         respondidos = None  # se usa más abajo en la reconciliación de la Sección 2, si existe
         if resp_df is None or resp_df.empty or resp_df["enviados"].iloc[0] == 0:
             st.caption(f"Sin datos de entrega individual de \"{push_pick}\" en fact_deployment_status "
@@ -1882,7 +1924,7 @@ with tab7:
             # ── ¿Por qué no llegó el mensaje? Motivos reales de no entrega ──
             no_entregados = enviados - entregados
             if no_entregados > 0:
-                motivos_df = dwh_motivos_no_entrega(push_pick)
+                motivos_df = dwh_motivos_no_entrega(push_query)
                 if motivos_df is not None and not motivos_df.empty:
                     m = motivos_df.iloc[0]
                     etiquetas = {
@@ -1921,7 +1963,7 @@ with tab7:
         # ── ¿El catálogo dice lo mismo que Treble? (independiente de la Sección 1) ──
         estado_catalogo_push = cat[cat["conversacion"] == push_pick]
         estado_catalogo_txt = estado_catalogo_push.iloc[0]["estado"] if len(estado_catalogo_push) else "?"
-        act_df = dwh_actividad_reciente(push_pick)
+        act_df = dwh_actividad_reciente(push_query)
         if act_df is not None and not act_df.empty and pd.notna(act_df["ultimo_envio"].iloc[0]):
             ultimo_envio = pd.to_datetime(act_df["ultimo_envio"].iloc[0]).date()
             dias_desde_ultimo = (pd.Timestamp.now().date() - ultimo_envio).days
@@ -1939,7 +1981,7 @@ with tab7:
         # ── 2) Qué contestan (fact_hsm_responses) — independiente de la Sección 1 ──
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown('<span class="sec amb">2️⃣ Qué contestan (por paso)</span>', unsafe_allow_html=True)
-        hsm_df, hsm_total = dwh_respuestas_hsm(push_pick)
+        hsm_df, hsm_total = dwh_respuestas_hsm(push_query)
         if hsm_df is None or hsm_df.empty:
             st.caption("Sin respuestas estructuradas (aviso de una sola vía, o texto libre sin clasificar).")
         else:
@@ -1993,7 +2035,7 @@ with tab7:
         # ── 3) Dónde termina (fact_sessions status) — independiente de la Sección 1 ──
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown('<span class="sec purple">3️⃣ Dónde termina la conversación</span>', unsafe_allow_html=True)
-        estado_df = dwh_estado_final_push(push_pick)
+        estado_df = dwh_estado_final_push(push_query)
         if estado_df is None or estado_df.empty:
             st.caption("Sin datos de estado final.")
         else:
@@ -2079,4 +2121,4 @@ st.markdown("<br><hr>", unsafe_allow_html=True)
 st.caption("Dashboard Conversaciones y Pushes Automáticos · Opción Yo — generado con NOVA. "
            "Datos: Data Warehouse de Treble en vivo (con respaldo automático a CSV si no hay conexión), "
            "catálogo interno de plantillas y export de árbol de conversación. "
-           "No incluye incidencias técnicas (dashboard aparte). · Build: 2026-07-29-HSM-FIX-03-FECHAS")
+           "No incluye incidencias técnicas (dashboard aparte). · Build: 2026-07-29-HSM-FIX-06-CONSOLIDADO")
