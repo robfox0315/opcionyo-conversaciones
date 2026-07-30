@@ -329,7 +329,7 @@ def dwh_respuesta_push(poll_name: str, dias: int = 365):
             countIf(timestamp_delivered > '2000-01-01') AS entregados,
             countIf(timestamp_responded > '2000-01-01') AS respondidos
         FROM client_analytics.fact_deployment_status
-        WHERE (positionCaseInsensitive(trim(poll_name), '{nombre_esc}') > 0 OR positionCaseInsensitive('{nombre_esc}', trim(poll_name)) > 0) AND timestamps_eta >= now() - INTERVAL {int(dias)} DAY
+        WHERE (positionCaseInsensitive(trim(poll_name), '{nombre_esc}') > 0 OR (poll_name != '' AND positionCaseInsensitive('{nombre_esc}', trim(poll_name)) > 0)) AND timestamps_eta >= now() - INTERVAL {int(dias)} DAY
     """
     return dwh_query(sql)
 
@@ -344,7 +344,7 @@ def dwh_respuestas_hsm(poll_name: str, dias: int = 365):
     nombre_esc = poll_name.replace("'", "''")
     sql_ids = f"""
         SELECT DISTINCT poll_id FROM client_analytics.fact_deployment_daily
-        WHERE (positionCaseInsensitive(trim(poll_name), '{nombre_esc}') > 0 OR positionCaseInsensitive('{nombre_esc}', trim(poll_name)) > 0) AND day >= today() - {int(dias)}
+        WHERE (positionCaseInsensitive(trim(poll_name), '{nombre_esc}') > 0 OR (poll_name != '' AND positionCaseInsensitive('{nombre_esc}', trim(poll_name)) > 0)) AND day >= today() - {int(dias)}
         LIMIT 2000
     """
     ids_df = dwh_query(sql_ids)
@@ -375,7 +375,7 @@ def dwh_estado_final_push(poll_name: str, dias: int = 365):
     sql = f"""
         SELECT status, count() AS n
         FROM client_analytics.fact_sessions
-        WHERE (positionCaseInsensitive(trim(poll_name), '{nombre_esc}') > 0 OR positionCaseInsensitive('{nombre_esc}', trim(poll_name)) > 0) AND created_at >= now() - INTERVAL {int(dias)} DAY
+        WHERE (positionCaseInsensitive(trim(poll_name), '{nombre_esc}') > 0 OR (poll_name != '' AND positionCaseInsensitive('{nombre_esc}', trim(poll_name)) > 0)) AND created_at >= now() - INTERVAL {int(dias)} DAY
         GROUP BY status ORDER BY n DESC
     """
     return dwh_query(sql)
@@ -390,7 +390,7 @@ def dwh_actividad_reciente(poll_name: str):
     sql = f"""
         SELECT sum(sent) AS enviados_365d, toString(max(day)) AS ultimo_envio, toString(min(day)) AS primer_envio
         FROM client_analytics.fact_deployment_daily
-        WHERE (positionCaseInsensitive(trim(poll_name), '{nombre_esc}') > 0 OR positionCaseInsensitive('{nombre_esc}', trim(poll_name)) > 0) AND day >= today() - 365
+        WHERE (positionCaseInsensitive(trim(poll_name), '{nombre_esc}') > 0 OR (poll_name != '' AND positionCaseInsensitive('{nombre_esc}', trim(poll_name)) > 0)) AND day >= today() - 365
     """
     return dwh_query(sql)
 
@@ -415,7 +415,7 @@ def dwh_motivos_no_entrega(poll_name: str, dias: int = 365):
             sum(optout) AS optout_usuario,
             sum(meta_chose_not_deliver) AS meta_no_entrego
         FROM client_analytics.fact_deployment_daily
-        WHERE (positionCaseInsensitive(trim(poll_name), '{nombre_esc}') > 0 OR positionCaseInsensitive('{nombre_esc}', trim(poll_name)) > 0) AND day >= today() - {int(dias)}
+        WHERE (positionCaseInsensitive(trim(poll_name), '{nombre_esc}') > 0 OR (poll_name != '' AND positionCaseInsensitive('{nombre_esc}', trim(poll_name)) > 0)) AND day >= today() - {int(dias)}
     """
     return dwh_query(sql)
 
@@ -2121,4 +2121,4 @@ st.markdown("<br><hr>", unsafe_allow_html=True)
 st.caption("Dashboard Conversaciones y Pushes Automáticos · Opción Yo — generado con NOVA. "
            "Datos: Data Warehouse de Treble en vivo (con respaldo automático a CSV si no hay conexión), "
            "catálogo interno de plantillas y export de árbol de conversación. "
-           "No incluye incidencias técnicas (dashboard aparte). · Build: 2026-07-29-HSM-FIX-06-CONSOLIDADO")
+           "No incluye incidencias técnicas (dashboard aparte). · Build: 2026-07-30-HSM-FIX-07-CORRIGE-INFLADO")
