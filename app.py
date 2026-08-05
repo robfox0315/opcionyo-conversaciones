@@ -1904,15 +1904,17 @@ with tab7:
         resp_df = dwh_respuesta_push(push_query)
         respondidos = None  # se usa más abajo en la reconciliación de la Sección 2, si existe
         if resp_df is None or resp_df.empty or resp_df["enviados"].iloc[0] == 0:
-            st.caption(f"Sin datos de entrega individual de \"{push_pick}\" en fact_deployment_status "
-                       f"(365 días) — puede seguir teniendo datos en las secciones de abajo, que son "
+            st.caption(f"Sin envíos individuales de \"{push_pick}\" en los últimos ~90 días — "
+                       f"`fact_deployment_status` (esta sección) solo retiene detalle reciente, a "
+                       f"diferencia del resto del dashboard que usa el reporte agregado con más "
+                       f"historia. Puede seguir teniendo datos en las secciones de abajo, que son "
                        f"independientes de esta.")
         else:
             enviados = int(resp_df["enviados"].iloc[0])
             entregados = int(resp_df["entregados"].iloc[0])
             respondidos = int(resp_df["respondidos"].iloc[0])
             c1, c2, c3, c4 = st.columns(4)
-            c1.markdown(kpi("Enviados", f"{enviados:,}", "últimos 365 días", ""), unsafe_allow_html=True)
+            c1.markdown(kpi("Enviados", f"{enviados:,}", "detalle disponible ~90 días", ""), unsafe_allow_html=True)
             c2.markdown(kpi("Entregados", f"{entregados:,}", f"{safe_pct(entregados, enviados)}%", "ok"),
                         unsafe_allow_html=True)
             c3.markdown(kpi("Respondidos", f"{respondidos:,}", f"{safe_pct(respondidos, entregados)}% de entregados",
@@ -2121,4 +2123,4 @@ st.markdown("<br><hr>", unsafe_allow_html=True)
 st.caption("Dashboard Conversaciones y Pushes Automáticos · Opción Yo — generado con NOVA. "
            "Datos: Data Warehouse de Treble en vivo (con respaldo automático a CSV si no hay conexión), "
            "catálogo interno de plantillas y export de árbol de conversación. "
-           "No incluye incidencias técnicas (dashboard aparte). · Build: 2026-07-30-HSM-FIX-07-CORRIGE-INFLADO")
+           "No incluye incidencias técnicas (dashboard aparte). · Build: 2026-08-05-HSM-FIX-08-RETENCION-90D")
