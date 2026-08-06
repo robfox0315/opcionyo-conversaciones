@@ -1633,11 +1633,9 @@ with tab5:
                           [["Push", "Enviados", "Tasa respuesta %", "Costo (USD)", "Tandas de envío"]]))
     if len(unicas_resp):
         nombres_unicas = ", ".join(unicas_resp["name_clean"].tolist())
-        insights.append(("info", "ℹ️ Envíos puntuales (no recurrentes) con baja tasa de respuesta",
-                          f"{nombres_unicas} — solo 1-2 tandas de envío en todo el período (ej. una encuesta "
-                          f"única, no un recordatorio diario). No comparar su tasa de respuesta contra "
-                          f"pushes recurrentes — es normal que una encuesta puntual tenga menos respuesta "
-                          f"que un recordatorio de sesión.", None))
+        insights.append(("info", "ℹ️ Envíos puntuales (no recurrentes)",
+                          f"{nombres_unicas} — 1-2 tandas en total, no un recurrente. No comparar su "
+                          f"tasa de respuesta contra pushes que se repiten.", None))
 
     if not insights:
         st.markdown('<div class="good">✅ No se detectaron anomalías relevantes en el período analizado.</div>',
@@ -2002,17 +2000,7 @@ with tab7:
         push_query = _real if pd.notna(_real) and _real else push_pick
 
         if push_pick not in _nombres_con_data:
-            st.markdown(
-                f'<div class="alrt">⚠️ <b>"{push_pick}" no tiene ningún envío registrado en el Data '
-                f'Warehouse en los últimos 365 días</b>, aunque el catálogo lo marca como activo. '
-                f'Confirmado cruzando las {len(push_opciones_raw)} plantillas activas del catálogo '
-                f'contra el historial completo de Treble — el nombre de texto no aparece en ningún envío. '
-                f'<b>Antes de asumir que está descontinuada:</b> cuando se edita una conversación en '
-                f'Treble, la versión anterior queda separada con otro ID interno — si además le '
-                f'cambiaron el nombre al editarla, el cruce por nombre no la va a encontrar aunque '
-                f'sí se siga enviando bajo el nombre nuevo. Confirmar con quien administra Treble '
-                f'antes de marcarla inactiva en el catálogo.</div>', unsafe_allow_html=True
-            )
+            st.caption(f"⚠️ Sin envíos de \"{push_pick}\" en el DWH — verificar si Treble la renombró al editarla.")
 
         # ── 1) Tasa de respuesta real, granular (fact_deployment_status) ──
         st.markdown('<span class="sec blue">1️⃣ Respuesta real</span>', unsafe_allow_html=True)
@@ -2073,10 +2061,7 @@ with tab7:
                         fig.update_layout(xaxis_title=f"De {no_entregados:,} no entregados", yaxis_title="")
                         st.plotly_chart(sfig(fig, 280), use_container_width=True)
                         boton_descarga(motivos_df_show, f"motivos_no_entrega_{push_pick}.csv", "t7_dl_motivos")
-                        st.caption("Nombres de columna documentados por Treble tal cual — no son "
-                                   "interpretación nuestra. \"Falla al transferir a agente\" no tiene una "
-                                   "definición pública detallada en la documentación de Treble; si necesitan "
-                                   "el detalle exacto, hay que confirmarlo directo con soporte de Treble.")
+                        st.caption("Motivos según Treble. Detalle de \"Falla al transferir a agente\": confirmar con su soporte.")
                     else:
                         st.caption(f"{no_entregados:,} no entregados, pero Treble no registró un motivo "
                                    f"específico para ninguno (columnas de falla en cero).")
@@ -2263,4 +2248,4 @@ st.markdown("<br><hr>", unsafe_allow_html=True)
 st.caption("Dashboard Conversaciones y Pushes Automáticos · Opción Yo — generado con NOVA. "
            "Datos: Data Warehouse de Treble en vivo (con respaldo automático a CSV si no hay conexión), "
            "catálogo interno de plantillas y export de árbol de conversación. "
-           "No incluye incidencias técnicas (dashboard aparte). · Build: 2026-08-06-HSM-FIX-12-FEEDBACK-IVA")
+           "No incluye incidencias técnicas (dashboard aparte). · Build: 2026-08-06-HSM-FIX-13-TEXTO-CORTO")
