@@ -319,17 +319,25 @@ def dwh_sessions(dias=32):
 
 
 @st.cache_data(ttl=300, show_spinner="⏳ Consultando tasa de respuesta real…")
-def dwh_respuesta_push(poll_name: str, dias: int = 365):
+def dwh_respuesta_push(poll_name: str, dias: int = 365, poll_ids: tuple = ()):
     """Tasa de entrega/respuesta real y granular para un push específico, desde fact_deployment_status
-    (una fila por intento de envío individual — el dato más preciso que existe)."""
+    (una fila por intento de envío individual — el dato más preciso que existe). Si se pasan
+    poll_ids conocidos, se incluyen SIEMPRE aunque el poll_name esté vacío en el DWH — confirmado
+    que Treble guarda poll_name en blanco para varios pushes con envíos reales."""
     nombre_esc = poll_name.replace("'", "''")
+    filtro_nombre = f"(positionCaseInsensitive(trim(poll_name), '{nombre_esc}') > 0 OR (poll_name != '' AND positionCaseInsensitive('{nombre_esc}', trim(poll_name)) > 0))"
+    if poll_ids:
+        ids_sql = ",".join(str(int(i)) for i in poll_ids)
+        filtro = f"({filtro_nombre} OR poll_id IN ({ids_sql}))"
+    else:
+        filtro = filtro_nombre
     sql = f"""
         SELECT
             count() AS enviados,
             countIf(timestamp_delivered > '2000-01-01') AS entregados,
             countIf(timestamp_responded > '2000-01-01') AS respondidos
         FROM client_analytics.fact_deployment_status
-        WHERE (positionCaseInsensitive(trim(poll_name), '{nombre_esc}') > 0 OR (poll_name != '' AND positionCaseInsensitive('{nombre_esc}', trim(poll_name)) > 0)) AND timestamps_eta >= now() - INTERVAL {int(dias)} DAY
+        WHERE {filtro} AND timestamps_eta >= now() - INTERVAL {int(dias)} DAY
     """
     return dwh_query(sql)
 
@@ -386,12 +394,14 @@ def load_historial_hsm():
 
 
 @st.cache_data(ttl=300, show_spinner="⏳ Consultando qué responden los usuarios…")
-def dwh_respuestas_hsm(poll_name: str, dias: int = 365):
+def dwh_respuestas_hsm(poll_name: str, dias: int = 365, poll_ids: tuple = ()):
     """Qué contestan los usuarios (botones/texto) dentro del flujo de un push específico,
     desglosado por hsm_name (para poder ver 'primer mensaje' vs 'segundo mensaje' por separado).
     fact_hsm_responses se filtra por poll_id, así que primero lo buscamos en
     fact_deployment_daily — a diferencia de fact_sessions, esta tabla tiene TODOS los pushes
-    (incluidos los de una sola vía que no generan un 'flujo de conversación' registrado)."""
+    (incluidos los de una sola vía que no generan un 'flujo de conversación' registrado).
+    Si se pasan poll_ids conocidos, se suman siempre — cubre los casos donde Treble guarda
+    poll_name vacío en el DWH aunque el push sí tenga envíos reales."""
     nombre_esc = poll_name.replace("'", "''")
     sql_ids = f"""
         SELECT DISTINCT poll_id FROM client_analytics.fact_deployment_daily
@@ -399,9 +409,11 @@ def dwh_respuestas_hsm(poll_name: str, dias: int = 365):
         LIMIT 2000
     """
     ids_df = dwh_query(sql_ids)
-    if ids_df is None or ids_df.empty:
+    ids_encontrados = set(str(int(i)) for i in ids_df["poll_id"]) if ids_df is not None and not ids_df.empty else set()
+    ids_encontrados |= set(str(int(i)) for i in poll_ids)
+    if not ids_encontrados:
         return None, None
-    ids = ",".join(str(int(i)) for i in ids_df["poll_id"])
+    ids = ",".join(ids_encontrados)
     sql = f"""
         SELECT hsm_name, answer_text, count() AS respuestas
         FROM client_analytics.fact_hsm_responses
@@ -420,28 +432,32 @@ def dwh_respuestas_hsm(poll_name: str, dias: int = 365):
 
 
 @st.cache_data(ttl=300, show_spinner="⏳ Consultando dónde termina la conversación…")
-def dwh_estado_final_push(poll_name: str, dias: int = 365):
+def dwh_estado_final_push(poll_name: str, dias: int = 365, poll_ids: tuple = ()):
     """En qué estado termina el flujo disparado por este push (HumanHandover, Rating, etc.)."""
     nombre_esc = poll_name.replace("'", "''")
+    filtro_nombre = f"(positionCaseInsensitive(trim(poll_name), '{nombre_esc}') > 0 OR (poll_name != '' AND positionCaseInsensitive('{nombre_esc}', trim(poll_name)) > 0))"
+    filtro = f"({filtro_nombre} OR poll_id IN ({','.join(str(int(i)) for i in poll_ids)}))" if poll_ids else filtro_nombre
     sql = f"""
         SELECT status, count() AS n
         FROM client_analytics.fact_sessions
-        WHERE (positionCaseInsensitive(trim(poll_name), '{nombre_esc}') > 0 OR (poll_name != '' AND positionCaseInsensitive('{nombre_esc}', trim(poll_name)) > 0)) AND created_at >= now() - INTERVAL {int(dias)} DAY
+        WHERE {filtro} AND created_at >= now() - INTERVAL {int(dias)} DAY
         GROUP BY status ORDER BY n DESC
     """
     return dwh_query(sql)
 
 
 @st.cache_data(ttl=300, show_spinner="⏳ Verificando actividad real en Treble…")
-def dwh_actividad_reciente(poll_name: str):
+def dwh_actividad_reciente(poll_name: str, poll_ids: tuple = ()):
     """¿Este push mandó algo de verdad, y cuándo fue la última vez? La mejor señal disponible
     de si está realmente activo en Treble ahora mismo — el DWH no tiene un flag 'activo/inactivo'
     explícito por poll, así que usamos la fecha del último envío real como proxy."""
     nombre_esc = poll_name.replace("'", "''")
+    filtro_nombre = f"(positionCaseInsensitive(trim(poll_name), '{nombre_esc}') > 0 OR (poll_name != '' AND positionCaseInsensitive('{nombre_esc}', trim(poll_name)) > 0))"
+    filtro = f"({filtro_nombre} OR poll_id IN ({','.join(str(int(i)) for i in poll_ids)}))" if poll_ids else filtro_nombre
     sql = f"""
         SELECT sum(sent) AS enviados_365d, toString(max(day)) AS ultimo_envio, toString(min(day)) AS primer_envio
         FROM client_analytics.fact_deployment_daily
-        WHERE (positionCaseInsensitive(trim(poll_name), '{nombre_esc}') > 0 OR (poll_name != '' AND positionCaseInsensitive('{nombre_esc}', trim(poll_name)) > 0)) AND day >= today() - 365
+        WHERE {filtro} AND day >= today() - 365
     """
     return dwh_query(sql)
 
@@ -1998,13 +2014,18 @@ with tab7:
         _fila_cat_push = cat[cat["conversacion"] == push_pick]
         _real = _fila_cat_push.iloc[0]["poll_name_dwh_real"] if len(_fila_cat_push) else None
         push_query = _real if pd.notna(_real) and _real else push_pick
+        # poll_id conocidos manualmente (para pushes donde Treble guarda poll_name vacío en el
+        # DWH — confirmado que existe para varios pushes con envíos reales, aunque el nombre
+        # de texto esté en blanco ahí. Ver columna poll_ids_conocidos del catálogo).
+        _pids_raw = _fila_cat_push.iloc[0].get("poll_ids_conocidos", "") if len(_fila_cat_push) else ""
+        push_poll_ids = [p for p in str(_pids_raw).split(",") if p.strip().isdigit()] if pd.notna(_pids_raw) else []
 
         if push_pick not in _nombres_con_data:
             st.caption(f"⚠️ Sin envíos de \"{push_pick}\" en el DWH — verificar si Treble la renombró al editarla.")
 
         # ── 1) Tasa de respuesta real, granular (fact_deployment_status) ──
         st.markdown('<span class="sec blue">1️⃣ Respuesta real</span>', unsafe_allow_html=True)
-        resp_df = dwh_respuesta_push(push_query)
+        resp_df = dwh_respuesta_push(push_query, poll_ids=tuple(push_poll_ids))
         respondidos = None  # se usa más abajo en la reconciliación de la Sección 2, si existe
         if resp_df is None or resp_df.empty or resp_df["enviados"].iloc[0] == 0:
             st.caption(f"Sin envíos individuales de \"{push_pick}\" en los últimos ~90 días — "
@@ -2069,7 +2090,7 @@ with tab7:
         # ── ¿El catálogo dice lo mismo que Treble? (independiente de la Sección 1) ──
         estado_catalogo_push = cat[cat["conversacion"] == push_pick]
         estado_catalogo_txt = estado_catalogo_push.iloc[0]["estado"] if len(estado_catalogo_push) else "?"
-        act_df = dwh_actividad_reciente(push_query)
+        act_df = dwh_actividad_reciente(push_query, poll_ids=tuple(push_poll_ids))
         if act_df is not None and not act_df.empty and pd.notna(act_df["ultimo_envio"].iloc[0]):
             ultimo_envio = pd.to_datetime(act_df["ultimo_envio"].iloc[0]).date()
             dias_desde_ultimo = (pd.Timestamp.now().date() - ultimo_envio).days
@@ -2087,7 +2108,7 @@ with tab7:
         # ── 2) Qué contestan (fact_hsm_responses) — independiente de la Sección 1 ──
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown('<span class="sec amb">2️⃣ Qué contestan (por paso)</span>', unsafe_allow_html=True)
-        hsm_df, hsm_total = dwh_respuestas_hsm(push_query)
+        hsm_df, hsm_total = dwh_respuestas_hsm(push_query, poll_ids=tuple(push_poll_ids))
         _fuente_hsm = "DWH en vivo (90 días)"
         if hsm_df is None or hsm_df.empty:
             # El DWH en vivo no tiene nada — probamos con nuestro historial propio acumulado,
@@ -2157,7 +2178,7 @@ with tab7:
         # ── 3) Dónde termina (fact_sessions status) — independiente de la Sección 1 ──
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown('<span class="sec purple">3️⃣ Dónde termina la conversación</span>', unsafe_allow_html=True)
-        estado_df = dwh_estado_final_push(push_query)
+        estado_df = dwh_estado_final_push(push_query, poll_ids=tuple(push_poll_ids))
         if estado_df is None or estado_df.empty:
             st.caption("Sin datos de estado final.")
         else:
@@ -2248,4 +2269,4 @@ st.markdown("<br><hr>", unsafe_allow_html=True)
 st.caption("Dashboard Conversaciones y Pushes Automáticos · Opción Yo — generado con NOVA. "
            "Datos: Data Warehouse de Treble en vivo (con respaldo automático a CSV si no hay conexión), "
            "catálogo interno de plantillas y export de árbol de conversación. "
-           "No incluye incidencias técnicas (dashboard aparte). · Build: 2026-08-06-HSM-FIX-13-TEXTO-CORTO")
+           "No incluye incidencias técnicas (dashboard aparte). · Build: 2026-08-06-HSM-FIX-14-POLLID-DIRECTO")
