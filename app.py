@@ -334,6 +334,57 @@ def dwh_respuesta_push(poll_name: str, dias: int = 365):
     return dwh_query(sql)
 
 
+@st.cache_data(ttl=300, show_spinner="⏳ Generando snapshot de HSM (últimos 90 días (todo lo disponible))…")
+def dwh_snapshot_hsm_semanal(dias: int = 90):
+    """Trae TODO fact_hsm_responses disponible (hasta 90 días, el máximo que retiene Treble),
+    cruzado con poll_name real vía fact_deployment_daily. Se usa para guardar historial propio
+    y no perder detalle cuando Treble lo borra de su ventana de 90 días. La primera vez trae
+    todo lo que hay; después conviene correrlo cada semana para no perder lo que va rotando."""
+    sql = f"""
+        SELECT
+            hr.response_date AS fecha, hr.hsm_name AS hsm, hr.answer_text AS respuesta,
+            hr.poll_id AS poll_id, dd.poll_name AS push
+        FROM client_analytics.fact_hsm_responses hr
+        LEFT JOIN (
+            SELECT DISTINCT poll_id, poll_name FROM client_analytics.fact_deployment_daily
+            WHERE poll_name != '' AND poll_name IS NOT NULL
+        ) dd ON dd.poll_id = hr.poll_id
+        WHERE hr.response_date >= now() - INTERVAL {int(dias)} DAY
+        ORDER BY hr.response_date DESC
+        LIMIT 100000
+    """
+    return dwh_query(sql)
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def load_historial_hsm():
+    """Carga y combina TODOS los snapshots semanales guardados en data/historial_hsm/.
+    Cada archivo es una foto de 14 días — juntos, van construyendo historia propia más
+    larga que los 90 días que retiene Treble. Devuelve None si no hay ninguno guardado."""
+    carpeta = None
+    for c in ["data/historial_hsm", os.path.join(os.path.dirname(__file__), "data", "historial_hsm")]:
+        if os.path.isdir(c):
+            carpeta = c
+            break
+    if carpeta is None:
+        return None
+    archivos = [f for f in os.listdir(carpeta) if f.endswith(".csv")]
+    if not archivos:
+        return None
+    partes = []
+    for f in archivos:
+        try:
+            partes.append(pd.read_csv(os.path.join(carpeta, f)))
+        except Exception:
+            continue
+    if not partes:
+        return None
+    df = pd.concat(partes, ignore_index=True)
+    df = df.drop_duplicates(subset=["fecha", "hsm", "respuesta", "poll_id"])
+    df["fecha"] = pd.to_datetime(df["fecha"], errors="coerce")
+    return df
+
+
 @st.cache_data(ttl=300, show_spinner="⏳ Consultando qué responden los usuarios…")
 def dwh_respuestas_hsm(poll_name: str, dias: int = 365):
     """Qué contestan los usuarios (botones/texto) dentro del flujo de un push específico,
@@ -1150,7 +1201,7 @@ with tab2:
 
     # ── Herramientas avanzadas (colapsadas por defecto) ──
     with st.expander("🛠️ Herramientas avanzadas — auditoría de tarifa, verificación puntual, campañas nuevas"):
-        sub1, sub2, sub3 = st.tabs(["Auditoría de tarifa", "Verificar una plantilla", "Campañas nuevas"])
+        sub1, sub2, sub3, sub4 = st.tabs(["Auditoría de tarifa", "Verificar una plantilla", "Campañas nuevas", "📦 Historial semanal HSM"])
 
         with sub1:
             st.caption("Compara el gasto real reportado por Treble contra el modelo de $0.20/conversación "
@@ -1233,6 +1284,31 @@ with tab2:
                             "primera_fecha": "Primer envío", "ultima_fecha": "Último envío"})
                         st.dataframe(nuevas_df, use_container_width=True, hide_index=True)
                         boton_descarga(nuevas_df, "campanas_nuevas_dwh.csv", "t2_dl_nuevas")
+
+        with sub4:
+            st.caption(
+                "Treble solo retiene el detalle de respuestas HSM ~90 días. Corre esto una vez por "
+                "semana, sube el archivo a `data/historial_hsm/` con nombre distinto cada vez "
+                "(ej. `hsm_2026-08-05.csv`), y el dashboard va acumulando historia propia que ya "
+                "no se pierde. Combínalo con la pestaña 🔎 Push → Dónde se pierde la respuesta, "
+                "Sección 2 — ahí también se usa este historial cuando el DWH ya no tiene el dato."
+            )
+            historial_actual = load_historial_hsm()
+            n_guardado = len(historial_actual) if historial_actual is not None else 0
+            st.caption(f"📦 Historial propio guardado hasta ahora: **{n_guardado:,} respuestas** "
+                       f"({historial_actual['fecha'].dt.date.nunique() if n_guardado else 0} días distintos).")
+            if not _dwh_ok:
+                st.info("Data Warehouse no conectado.")
+            else:
+                if st.button("Generar snapshot de los últimos 90 días (todo lo disponible)", key="t2_snapshot_btn"):
+                    snap = dwh_snapshot_hsm_semanal()
+                    if snap is None or snap.empty:
+                        st.warning("El DWH no devolvió datos para los últimos 90 días (todo lo disponible).")
+                    else:
+                        st.success(f"{len(snap):,} filas listas — descárgalas y súbelas a `data/historial_hsm/`.")
+                        st.dataframe(snap.head(20), use_container_width=True, hide_index=True)
+                        nombre_archivo = f"hsm_{pd.Timestamp.now().date()}.csv"
+                        boton_descarga(snap, nombre_archivo, "t2_dl_snapshot")
 
 
 # ────────────────────────────────────────────────────────────────
@@ -1504,7 +1580,7 @@ with tab5:
     # 2) Pushes con baja tasa de entrega (dinero gastado sin llegar)
     agg_full = gr_costo_full.groupby("name_clean", observed=True).agg(
         envios=("successful", "sum"), entregados=("delivered", "sum"),
-        costo=("costo_estimado", "sum")).reset_index()
+        costo=("costo_estimado", "sum"), tandas=("date", "nunique")).reset_index()
     agg_full["tasa"] = agg_full["entregados"] / agg_full["envios"] * 100
     bajas = agg_full[(agg_full["tasa"] < 90) & (agg_full["envios"] >= 50)].sort_values("tasa")
     if len(bajas):
@@ -1536,20 +1612,32 @@ with tab5:
         lambda d: safe_pct((d["successful"] * d["response_rate"]).sum(), d["successful"].sum()),
         include_groups=False
     ).reset_index(name="tasa_resp")
-    resp_full = resp_full.merge(agg_full[["name_clean", "envios", "costo"]], on="name_clean")
-    bajas_resp = resp_full[(resp_full["tasa_resp"] < 10) & (resp_full["envios"] >= 500)].sort_values("costo", ascending=False)
+    resp_full = resp_full.merge(agg_full[["name_clean", "envios", "costo", "tandas"]], on="name_clean")
+    candidatas = resp_full[(resp_full["tasa_resp"] < 10) & (resp_full["envios"] >= 500)]
+    # Separar: 1-2 tandas = envío único/puntual (no es gasto recurrente, mal comparar contra
+    # recordatorios diarios). 3+ tandas = sí es un gasto que se repite de verdad.
+    bajas_resp = candidatas[candidatas["tandas"] >= 3].sort_values("costo", ascending=False)
+    unicas_resp = candidatas[candidatas["tandas"] < 3].sort_values("costo", ascending=False)
     if len(bajas_resp):
         top3 = ", ".join([f"{r.name_clean} ({r.tasa_resp:.1f}%)" for r in bajas_resp.head(3).itertuples()])
         resto = len(bajas_resp) - 3
         resumen = top3 + (f", y {resto} más" if resto > 0 else "")
         insights.append(("alrt", "💬 Pushes de alto volumen con baja tasa de respuesta",
-                          f"{len(bajas_resp)} push(es), empezando por {resumen}. Son recordatorios "
-                          f"informativos (respuesta baja es esperable), pero si el modelo de costeo activo "
-                          f"factura por conversación entregada (no por respuesta), estos son el gasto fijo "
-                          f"recurrente más alto — los que más conviene auditar primero si se busca reducir costo.",
+                          f"{len(bajas_resp)} push(es) que se repiten (3+ tandas de envío), empezando por "
+                          f"{resumen}. Son recordatorios informativos (respuesta baja es esperable), pero si "
+                          f"el modelo de costeo activo factura por conversación entregada (no por respuesta), "
+                          f"estos sí son un gasto fijo que se repite — los que más conviene auditar primero.",
                           bajas_resp.rename(columns={"name_clean": "Push", "envios": "Enviados",
-                                                      "tasa_resp": "Tasa respuesta %", "costo": "Costo (USD)"})
-                          [["Push", "Enviados", "Tasa respuesta %", "Costo (USD)"]]))
+                                                      "tasa_resp": "Tasa respuesta %", "costo": "Costo (USD)",
+                                                      "tandas": "Tandas de envío"})
+                          [["Push", "Enviados", "Tasa respuesta %", "Costo (USD)", "Tandas de envío"]]))
+    if len(unicas_resp):
+        nombres_unicas = ", ".join(unicas_resp["name_clean"].tolist())
+        insights.append(("info", "ℹ️ Envíos puntuales (no recurrentes) con baja tasa de respuesta",
+                          f"{nombres_unicas} — solo 1-2 tandas de envío en todo el período (ej. una encuesta "
+                          f"única, no un recordatorio diario). No comparar su tasa de respuesta contra "
+                          f"pushes recurrentes — es normal que una encuesta puntual tenga menos respuesta "
+                          f"que un recordatorio de sesión.", None))
 
     if not insights:
         st.markdown('<div class="good">✅ No se detectaron anomalías relevantes en el período analizado.</div>',
@@ -1874,6 +1962,30 @@ with tab7:
                     _nombres_con_data.add(nombre_cat)
 
         push_opciones_raw = sorted(cat[cat["activo"]]["conversacion"].unique())
+
+        with st.expander("📋 Vista general — qué push tiene datos disponibles (sin entrar uno por uno)"):
+            _historial_gen = load_historial_hsm()
+            filas_vista = []
+            for n in push_opciones_raw:
+                nn = _norm_txt(n)
+                tiene_actividad = n in _nombres_con_data
+                tiene_historial = False
+                if _historial_gen is not None and not _historial_gen.empty:
+                    tiene_historial = _historial_gen["push"].fillna("").apply(
+                        lambda p: _norm_txt(p) in nn or nn in _norm_txt(p)).any()
+                filas_vista.append({
+                    "Push": n,
+                    "Actividad reciente (90d)": "✅" if tiene_actividad else "⚠️",
+                    "HSM en historial propio": "✅" if tiene_historial else "—",
+                })
+            vista_df = pd.DataFrame(filas_vista)
+            st.dataframe(vista_df, use_container_width=True, hide_index=True, height=320)
+            boton_descarga(vista_df, "vista_general_hsm.csv", "t7_dl_vista")
+            st.caption("✅ Actividad reciente = tiene envíos en el DWH en vivo. ✅ Historial propio = "
+                       "tenemos guardado su detalle de respuestas HSM, aunque ya haya salido de la "
+                       "ventana de 90 días de Treble. Genera el historial en 📤 Pushes → Herramientas "
+                       "avanzadas → 📦 Historial semanal HSM.")
+
         etiquetas_push = {
             (f"✅ {n}" if n in _nombres_con_data else f"⚠️ {n} (sin envíos en 365d)"): n
             for n in push_opciones_raw
@@ -1893,10 +2005,13 @@ with tab7:
             st.markdown(
                 f'<div class="alrt">⚠️ <b>"{push_pick}" no tiene ningún envío registrado en el Data '
                 f'Warehouse en los últimos 365 días</b>, aunque el catálogo lo marca como activo. '
-                f'No es un error de esta pestaña — confirmado cruzando las {len(push_opciones_raw)} '
-                f'plantillas activas del catálogo contra el historial completo de Treble. '
-                f'Esta plantilla probablemente ya no se está enviando de verdad; conviene revisar '
-                f'su estado con el equipo.</div>', unsafe_allow_html=True
+                f'Confirmado cruzando las {len(push_opciones_raw)} plantillas activas del catálogo '
+                f'contra el historial completo de Treble — el nombre de texto no aparece en ningún envío. '
+                f'<b>Antes de asumir que está descontinuada:</b> cuando se edita una conversación en '
+                f'Treble, la versión anterior queda separada con otro ID interno — si además le '
+                f'cambiaron el nombre al editarla, el cruce por nombre no la va a encontrar aunque '
+                f'sí se siga enviando bajo el nombre nuevo. Confirmar con quien administra Treble '
+                f'antes de marcarla inactiva en el catálogo.</div>', unsafe_allow_html=True
             )
 
         # ── 1) Tasa de respuesta real, granular (fact_deployment_status) ──
@@ -1958,6 +2073,10 @@ with tab7:
                         fig.update_layout(xaxis_title=f"De {no_entregados:,} no entregados", yaxis_title="")
                         st.plotly_chart(sfig(fig, 280), use_container_width=True)
                         boton_descarga(motivos_df_show, f"motivos_no_entrega_{push_pick}.csv", "t7_dl_motivos")
+                        st.caption("Nombres de columna documentados por Treble tal cual — no son "
+                                   "interpretación nuestra. \"Falla al transferir a agente\" no tiene una "
+                                   "definición pública detallada en la documentación de Treble; si necesitan "
+                                   "el detalle exacto, hay que confirmarlo directo con soporte de Treble.")
                     else:
                         st.caption(f"{no_entregados:,} no entregados, pero Treble no registró un motivo "
                                    f"específico para ninguno (columnas de falla en cero).")
@@ -1984,9 +2103,25 @@ with tab7:
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown('<span class="sec amb">2️⃣ Qué contestan (por paso)</span>', unsafe_allow_html=True)
         hsm_df, hsm_total = dwh_respuestas_hsm(push_query)
+        _fuente_hsm = "DWH en vivo (90 días)"
         if hsm_df is None or hsm_df.empty:
-            st.caption("Sin respuestas estructuradas (aviso de una sola vía, o texto libre sin clasificar).")
+            # El DWH en vivo no tiene nada — probamos con nuestro historial propio acumulado,
+            # que no está sujeto a la ventana de 90 días de Treble.
+            historial = load_historial_hsm()
+            if historial is not None and not historial.empty:
+                cn_push = _norm_txt(push_pick)
+                hist_match = historial[historial["push"].fillna("").apply(
+                    lambda p: _norm_txt(p) in cn_push or cn_push in _norm_txt(p))]
+                if len(hist_match):
+                    hsm_df = hist_match.groupby(["hsm", "respuesta"]).size().reset_index(name="respuestas")
+                    hsm_df = hsm_df.rename(columns={"hsm": "hsm_name", "respuesta": "answer_text"})
+                    hsm_total = None
+                    _fuente_hsm = f"historial propio guardado ({hist_match['fecha'].dt.date.nunique()} días distintos)"
+        if hsm_df is None or hsm_df.empty:
+            st.caption("Sin respuestas estructuradas (aviso de una sola vía, texto libre sin clasificar, "
+                       "o sin datos ni en el DWH ni en el historial propio guardado).")
         else:
+            st.caption(f"Fuente: {_fuente_hsm}")
             # Reconciliación explícita contra la Sección 1, solo si esa sección tuvo datos.
             usuarios_unicos_hsm = int(hsm_total["usuarios_unicos"].iloc[0]) if hsm_total is not None and not hsm_total.empty else None
             if usuarios_unicos_hsm is not None and respondidos is not None:
@@ -2055,16 +2190,21 @@ with tab7:
         if arbol is None:
             st.caption("Sin export de árbol de conversación cargado.")
         else:
+            def _norm_agresivo(s):
+                # Compara ignorando espacios, guiones y guiones bajos por completo —
+                # así 'q3_recordatorio_3_hs_antes' y 'Recordatorio 3hs antes' sí matchean.
+                return _norm_txt(s).replace("_", "").replace("-", "").replace(" ", "")
+
             fila_cat = cat[cat["conversacion"] == push_pick]
             plantilla_hsm = fila_cat.iloc[0]["plantilla"] if len(fila_cat) else None
             candidatos = [push_pick] + ([plantilla_hsm] if plantilla_hsm and plantilla_hsm != "Sin documentar" else [])
             arbol_plantillas = arbol["Plantilla"].unique()
             match_arbol = None
             for cand in candidatos:
-                cn = _norm_txt(cand)
+                cn = _norm_agresivo(cand)
                 for p in arbol_plantillas:
-                    pn = _norm_txt(p)
-                    if pn in cn or cn in pn:
+                    pn = _norm_agresivo(p)
+                    if len(pn) >= 5 and (pn in cn or cn in pn):
                         match_arbol = p
                         break
                 if match_arbol:
@@ -2123,4 +2263,4 @@ st.markdown("<br><hr>", unsafe_allow_html=True)
 st.caption("Dashboard Conversaciones y Pushes Automáticos · Opción Yo — generado con NOVA. "
            "Datos: Data Warehouse de Treble en vivo (con respaldo automático a CSV si no hay conexión), "
            "catálogo interno de plantillas y export de árbol de conversación. "
-           "No incluye incidencias técnicas (dashboard aparte). · Build: 2026-08-05-HSM-FIX-08-RETENCION-90D")
+           "No incluye incidencias técnicas (dashboard aparte). · Build: 2026-08-06-HSM-FIX-12-FEEDBACK-IVA")
