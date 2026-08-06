@@ -1974,6 +1974,12 @@ with tab7:
                 nn = _norm_txt(nombre_cat)
                 if any(nn in an or an in nn for an in _activ_norm):
                     _nombres_con_data.add(nombre_cat)
+        # Sumar las que tienen poll_id confirmado manualmente (Treble guarda su poll_name
+        # vacío en el DWH, así que la verificación masiva por texto nunca las va a encontrar).
+        for _, _r in cat[cat["activo"]].iterrows():
+            _pid_check = str(_r.get("poll_ids_conocidos", "")).strip()
+            if _pid_check and _pid_check.lower() != "nan":
+                _nombres_con_data.add(_r["conversacion"])
 
         push_opciones_raw = sorted(cat[cat["activo"]]["conversacion"].unique())
 
@@ -2018,7 +2024,14 @@ with tab7:
         # DWH — confirmado que existe para varios pushes con envíos reales, aunque el nombre
         # de texto esté en blanco ahí. Ver columna poll_ids_conocidos del catálogo).
         _pids_raw = _fila_cat_push.iloc[0].get("poll_ids_conocidos", "") if len(_fila_cat_push) else ""
-        push_poll_ids = [p for p in str(_pids_raw).split(",") if p.strip().isdigit()] if pd.notna(_pids_raw) else []
+        push_poll_ids = []
+        if pd.notna(_pids_raw) and str(_pids_raw).strip():
+            for p in str(_pids_raw).split(","):
+                p = p.strip()
+                if p.endswith(".0"):
+                    p = p[:-2]
+                if p.isdigit():
+                    push_poll_ids.append(p)
 
         if push_pick not in _nombres_con_data:
             st.caption(f"⚠️ Sin envíos de \"{push_pick}\" en el DWH — verificar si Treble la renombró al editarla.")
@@ -2269,4 +2282,4 @@ st.markdown("<br><hr>", unsafe_allow_html=True)
 st.caption("Dashboard Conversaciones y Pushes Automáticos · Opción Yo — generado con NOVA. "
            "Datos: Data Warehouse de Treble en vivo (con respaldo automático a CSV si no hay conexión), "
            "catálogo interno de plantillas y export de árbol de conversación. "
-           "No incluye incidencias técnicas (dashboard aparte). · Build: 2026-08-06-HSM-FIX-14-POLLID-DIRECTO")
+           "No incluye incidencias técnicas (dashboard aparte). · Build: 2026-08-06-HSM-FIX-15-TIPO-DATO")
