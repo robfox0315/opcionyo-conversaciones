@@ -1133,7 +1133,7 @@ with tab2:
     def _cat_match(n):
         n_norm = _norm_txt(n)
         for k_norm, k in cat_norm_index.items():
-            if k_norm in n_norm or n_norm in k_norm:
+            if len(k_norm) >= 6 and (k_norm in n_norm or n_norm in k_norm):
                 return cat_lookup.loc[k, "equipo"], cat_lookup.loc[k, "estado"], cat_lookup.loc[k, "activo"], k
         return "Sin match en catálogo", "Sin match", None, None
     _res = [_cat_match(n) for n in agg["name_clean"]]
@@ -1233,6 +1233,16 @@ with tab2:
                     unsafe_allow_html=True)
     c5.markdown(kpi("Fuente de datos", "DWH en vivo" if gr.attrs.get("fuente") == "dwh" else "CSV (respaldo)", "",
                     "ok" if gr.attrs.get("fuente") == "dwh" else "warn"), unsafe_allow_html=True)
+
+    if inactivos_con_envio or _mismatches:
+        with st.expander(f"🔍 Ver el detalle de las {inactivos_con_envio + _mismatches} discrepancias"):
+            _disc = agg[(agg["activo"] == False) | (agg["¿Activo confirmado?"].astype(str).str.startswith("🚨"))]
+            st.dataframe(_disc[["name_clean", "estado_catalogo", "activo", "envios", "¿Activo confirmado?"]]
+                         .rename(columns={"name_clean": "Push", "estado_catalogo": "Estado en catálogo",
+                                          "activo": "¿Catálogo dice activo?", "envios": "Envíos en el período"}),
+                         use_container_width=True, hide_index=True)
+            st.caption("Si ves nombres muy distintos entre sí en 'Push' y 'Estado en catálogo', probablemente "
+                       "es un falso cruce por nombre corto — avísame el nombre exacto y lo reviso puntual.")
 
     # ── Tabla principal ──
     st.markdown("<br>", unsafe_allow_html=True)
@@ -2360,4 +2370,4 @@ st.markdown("<br><hr>", unsafe_allow_html=True)
 st.caption("Dashboard Conversaciones y Pushes Automáticos · Opción Yo — generado con NOVA. "
            "Datos: Data Warehouse de Treble en vivo (con respaldo automático a CSV si no hay conexión), "
            "catálogo interno de plantillas y export de árbol de conversación. "
-           "No incluye incidencias técnicas (dashboard aparte). · Build: 2026-08-11-HSM-FIX-22-DISCREPANCIAS-REALES")
+           "No incluye incidencias técnicas (dashboard aparte). · Build: 2026-08-11-HSM-FIX-23-MATCH-CORTO-Y-DETALLE")
