@@ -287,7 +287,14 @@ def dwh_general_report(dias=210):
     if df is None or df.empty:
         return None
     df["date"] = pd.to_datetime(df["date"])
-    df["name_clean"] = df["name"].astype(str).str.strip()
+    # Mismo criterio que el catálogo maestro de Treble (Tab7) y que el respaldo CSV:
+    # una versión editada de un push aparece en el DWH como "Copia de la conversación
+    # X id:NNNN" — sin esto, cada versión salía como una fila separada en Tab2 y los
+    # números no coincidían con el resto del dashboard, que sí las suma juntas.
+    df["name_clean"] = (df["name"].astype(str)
+                         .str.replace(r"(?i)^copia de la conversaci[oó]n\s+", "", regex=True)
+                         .str.replace(r"\s+id:\d+\s*$", "", regex=True)
+                         .str.strip())
     return df
 
 
@@ -636,9 +643,9 @@ def load_general_report():
             st.error(f"No se pudo leer general_report.csv: {e}")
             st.stop()
     if "name_clean" not in df.columns:
-        df["name_clean"] = (df["name"]
-                             .str.replace("Copia de la conversación", "", regex=False)
-                             .str.replace(r"\s+id:\d+", "", regex=True)
+        df["name_clean"] = (df["name"].astype(str)
+                             .str.replace(r"(?i)^copia de la conversaci[oó]n\s+", "", regex=True)
+                             .str.replace(r"\s+id:\d+\s*$", "", regex=True)
                              .str.strip())
     df["mes"] = df["date"].dt.to_period("M").apply(lambda p: p.start_time.date())
     df["fecha"] = df["date"].dt.date
@@ -777,10 +784,16 @@ arbol = load_arbol()
 # plantillas ATC. El DWH trae TODAS las líneas de Treble (incluida Ventas/Marketing, que
 # no es parte de este dashboard) — se filtra acá, una sola vez, para que Resumen, Pushes,
 # Insights y el comparador de períodos ya trabajen limpios sin repetir el filtro en cada pestaña.
-_cat_norm_set = [_norm_txt(k) for k in cat["conversacion"]]
 def _es_campana_atc(nombre):
+    # Antes: requería que el nombre estuviera en el catálogo Excel — eso generaba
+    # diferencias entre pestañas cuando el catálogo no tenía algo que Treble sí
+    # reportaba. Ahora usa el mismo criterio 100% Treble que el catálogo maestro:
+    # se excluye solo lo que parece Marketing por patrón de nombre; todo lo demás
+    # entra, esté o no catalogado en el Excel.
     n = _norm_txt(nombre)
-    return any(k in n or n in k for k in _cat_norm_set)
+    n_limpio = re.sub(r'^copia de la conversaci[oó]n\s+', '', n)
+    n_limpio = re.sub(r'\s+id:\d+\s*$', '', n_limpio).strip()
+    return not _es_probable_marketing(n_limpio)
 
 _gr_campanas_antes = gr["name_clean"].nunique()
 _fuente_gr = gr.attrs.get("fuente", "csv")
@@ -2345,4 +2358,4 @@ st.markdown("<br><hr>", unsafe_allow_html=True)
 st.caption("Dashboard Conversaciones y Pushes Automáticos · Opción Yo — generado con NOVA. "
            "Datos: Data Warehouse de Treble en vivo (con respaldo automático a CSV si no hay conexión), "
            "catálogo interno de plantillas y export de árbol de conversación. "
-           "No incluye incidencias técnicas (dashboard aparte). · Build: 2026-08-11-HSM-FIX-19-CATALOGO-TREBLE")
+           "No incluye incidencias técnicas (dashboard aparte). · Build: 2026-08-11-HSM-FIX-21-FILTRO-100-TREBLE")
