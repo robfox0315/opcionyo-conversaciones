@@ -16,6 +16,7 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 import os
+import re
 from datetime import datetime
 
 # ══════════════════════════════════════════════════════════════
@@ -501,6 +502,69 @@ def dwh_actividad_reciente_todos():
         GROUP BY poll_id, poll_name
     """
     return dwh_query(sql)
+
+
+_MARKETING_KEYWORDS = [
+    "nurturing", "carrusel", "campana utilidad", "campana rmkt", "campana mes",
+    "campana abril", "campana 7/05", "gp vz", "ga vz", "form out", "new lead",
+    "v2flow lead", "rmk utilidad", "mc generico",
+]
+
+def _es_probable_marketing(nombre_norm):
+    return any(k in nombre_norm for k in _MARKETING_KEYWORDS)
+
+
+@st.cache_data(ttl=300, show_spinner="⏳ Construyendo catálogo maestro directo de Treble…")
+def dwh_catalogo_maestro(dias: int = 120):
+    """Fuente de verdad ÚNICA para 'Push → Dónde se pierde la respuesta': se arma
+    100% desde fact_deployment_daily, sin ningún dato del catálogo Excel/manual.
+    Agrupa por nombre normalizado (sin tildes, sin el prefijo 'Copia de la
+    conversación...id:NNNN') para que las distintas versiones de un mismo push
+    aparezcan como una sola entrada — con todos sus poll_id ya reunidos."""
+    sql = f"""
+        SELECT poll_id, poll_name, sum(sent) AS enviados, toString(max(day)) AS ultimo,
+               toString(min(day)) AS primero
+        FROM client_analytics.fact_deployment_daily
+        WHERE day >= today() - {int(dias)} AND poll_name != '' AND poll_name IS NOT NULL
+        GROUP BY poll_id, poll_name
+    """
+    df = dwh_query(sql)
+    if df is None or df.empty:
+        return None
+
+    patron_copia = re.compile(r'^copia de la conversaci[oó]n\s+(.+?)\s+id:\d+\s*$', re.IGNORECASE)
+
+    def limpiar(nombre):
+        m = patron_copia.match(str(nombre).strip())
+        base = m.group(1) if m else str(nombre)
+        return _norm_txt(base)
+
+    df["clave"] = df["poll_name"].apply(limpiar)
+    df = df[~df["clave"].apply(_es_probable_marketing)]
+    if df.empty:
+        return None
+
+    df["ultimo"] = pd.to_datetime(df["ultimo"])
+    filas = []
+    for clave, grupo in df.groupby("clave"):
+        if not clave:
+            continue
+        nombre_display = grupo.loc[grupo["enviados"].idxmax(), "poll_name"]
+        nombre_display = re.sub(r'^copia de la conversaci[oó]n\s+', '', nombre_display, flags=re.IGNORECASE)
+        nombre_display = re.sub(r'\s+id:\d+\s*$', '', nombre_display, flags=re.IGNORECASE).strip()
+        filas.append({
+            "push": nombre_display,
+            "poll_ids": ",".join(str(i) for i in sorted(grupo["poll_id"].unique())),
+            "enviados_total": int(grupo["enviados"].sum()),
+            "ultimo_envio": grupo["ultimo"].max().date(),
+            "n_versiones": grupo["poll_id"].nunique(),
+        })
+    resultado = pd.DataFrame(filas).sort_values("enviados_total", ascending=False).reset_index(drop=True)
+    hoy = pd.Timestamp.now().date()
+    resultado["dias_desde_ultimo"] = resultado["ultimo_envio"].apply(lambda d: (hoy - d).days)
+    resultado["estado_real"] = resultado["dias_desde_ultimo"].apply(
+        lambda d: "Activa" if d <= 30 else ("Reciente" if d <= 90 else "Inactiva"))
+    return resultado
 
 
 # ══════════════════════════════════════════════════════════════
@@ -999,10 +1063,15 @@ with tab2:
     _fuente_gr_txt = "Data Warehouse en vivo" if gr.attrs.get("fuente") == "dwh" else "CSV de respaldo (no en vivo)"
     tc1, tc2, tc3, tc4 = st.columns([1, 1.6, 0.85, 0.85])
     with tc1:
-        rango2 = st.date_input("📅 Fechas", value=(gr["fecha"].min(), gr["fecha"].max()),
+        # Igual que el Data Studio de referencia: abre en el mes en curso, no en todo el
+        # historial — el historial completo sigue disponible, solo hay que ampliar el rango.
+        _hoy_t2 = min(gr["fecha"].max(), pd.Timestamp.now().date())
+        _inicio_mes = _hoy_t2.replace(day=1)
+        _default_ini = max(gr["fecha"].min(), _inicio_mes)
+        rango2 = st.date_input("📅 Fechas", value=(_default_ini, gr["fecha"].max()),
                                 min_value=gr["fecha"].min(), max_value=gr["fecha"].max(), key="t2_fecha",
-                                help=f"Fuente de datos: {_fuente_gr_txt}. Rango disponible: "
-                                     f"{gr['fecha'].min()} a {gr['fecha'].max()}.")
+                                help=f"Fuente de datos: {_fuente_gr_txt}. Abre en el mes en curso — "
+                                     f"histórico completo disponible desde {gr['fecha'].min()}.")
     with tc2:
         campanas_sel = st.multiselect("Push específico", sorted(gr["name_clean"].unique()),
                                        default=[], key="t2_campanas", placeholder="Todos los pushes")
@@ -1455,6 +1524,32 @@ with tab4:
             f'<div class="info">🗑️ <b>{len(_candidatas_eliminar)} plantilla(s) marcadas por el equipo como '
             f'candidatas a eliminar</b> — filtra por "Notas" abajo para verlas.</div>', unsafe_allow_html=True
         )
+
+    with st.expander("🔍 Cruce en vivo contra Treble — ¿el catálogo tiene todo lo que Treble realmente envía?"):
+        if not _dwh_ok:
+            st.caption(f"Data Warehouse no conectado: {_dwh_msg}")
+        else:
+            _maestro_t4 = dwh_catalogo_maestro()
+            if _maestro_t4 is None or _maestro_t4.empty:
+                st.caption("Treble no devolvió pushes en los últimos 120 días.")
+            else:
+                _cat_norm_t4 = [_norm_txt(c) for c in cat["conversacion"]]
+                _faltan = _maestro_t4[~_maestro_t4["push"].apply(
+                    lambda p: any(_norm_txt(p) in cn or cn in _norm_txt(p) for cn in _cat_norm_t4))]
+                _faltan = _faltan[~_faltan["push"].str.contains("go_to_agent", case=False, na=False)]
+                c1t4, c2t4 = st.columns(2)
+                c1t4.markdown(kpi("Pushes confirmados en Treble (120d)", f"{len(_maestro_t4)}", "sin Marketing", "ok"),
+                              unsafe_allow_html=True)
+                c2t4.markdown(kpi("Sin catalogar todavía", f"{len(_faltan)}", "excluye plantillas de sistema",
+                                  "warn" if len(_faltan) else "ok"), unsafe_allow_html=True)
+                if len(_faltan):
+                    st.dataframe(_faltan.rename(columns={
+                        "push": "Push", "enviados_total": "Enviados (120d)", "ultimo_envio": "Último envío",
+                        "estado_real": "Estado"})[["Push", "Estado", "Enviados (120d)", "Último envío"]],
+                        use_container_width=True, hide_index=True)
+                    boton_descarga(_faltan, "pushes_sin_catalogar.csv", "t4_dl_faltan")
+                else:
+                    st.caption("✅ Todo lo que Treble envía (fuera de Marketing y plantillas de sistema) ya está catalogado.")
 
     st.markdown("<br>", unsafe_allow_html=True)
     col1, col2 = st.columns(2)
@@ -1980,77 +2075,42 @@ with tab7:
     if not _dwh_ok:
         st.markdown(f'<div class="alrt">Data Warehouse no conectado: {_dwh_msg}</div>', unsafe_allow_html=True)
     else:
-        # Chequeo masivo de actividad real (una sola consulta) para marcar en el selector
-        # cuáles plantillas activas del catálogo SÍ tienen historial real en el DWH.
-        _activ_todos = dwh_actividad_reciente_todos()
-        _nombres_con_data = set()
-        if _activ_todos is not None and not _activ_todos.empty:
-            _activ_norm = [_norm_txt(n) for n in _activ_todos["poll_name"]]
-            for nombre_cat in cat[cat["activo"]]["conversacion"]:
-                nn = _norm_txt(nombre_cat)
-                if any(nn in an or an in nn for an in _activ_norm):
-                    _nombres_con_data.add(nombre_cat)
-        # Sumar las que tienen poll_id confirmado manualmente (Treble guarda su poll_name
-        # vacío en el DWH, así que la verificación masiva por texto nunca las va a encontrar).
-        for _, _r in cat[cat["activo"]].iterrows():
-            _pid_check = str(_r.get("poll_ids_conocidos", "")).strip()
-            if _pid_check and _pid_check.lower() != "nan":
-                _nombres_con_data.add(_r["conversacion"])
+        # ── Fuente única de verdad: catálogo maestro armado 100% desde Treble ──
+        # No se usa el catálogo Excel/manual acá para nada — ni para decidir qué pushes
+        # existen, ni cuáles están activos. Todo sale de fact_deployment_daily en vivo.
+        maestro = dwh_catalogo_maestro()
+        if maestro is None or maestro.empty:
+            st.warning("Treble no devolvió ningún push con envíos en los últimos 120 días.")
+            st.stop()
 
-        push_opciones_raw = sorted(cat[cat["activo"]]["conversacion"].unique())
-
-        with st.expander("📋 Vista general — qué push tiene datos disponibles (sin entrar uno por uno)"):
-            _historial_gen = load_historial_hsm()
-            filas_vista = []
-            for n in push_opciones_raw:
-                nn = _norm_txt(n)
-                tiene_actividad = n in _nombres_con_data
-                tiene_historial = False
-                if _historial_gen is not None and not _historial_gen.empty:
-                    tiene_historial = _historial_gen["push"].fillna("").apply(
-                        lambda p: _norm_txt(p) in nn or nn in _norm_txt(p)).any()
-                filas_vista.append({
-                    "Push": n,
-                    "Actividad reciente (90d)": "✅" if tiene_actividad else "⚠️",
-                    "HSM en historial propio": "✅" if tiene_historial else "—",
-                })
-            vista_df = pd.DataFrame(filas_vista)
+        with st.expander(f"📋 Catálogo maestro de Treble — {len(maestro)} pushes reales (sin duplicar por versión)"):
+            vista_df = maestro.rename(columns={
+                "push": "Push", "enviados_total": "Enviados (120d)", "n_versiones": "Versiones detectadas",
+                "ultimo_envio": "Último envío", "dias_desde_ultimo": "Días desde el último envío",
+                "estado_real": "Estado real"
+            })[["Push", "Estado real", "Enviados (120d)", "Versiones detectadas", "Último envío", "Días desde el último envío"]]
             st.dataframe(vista_df, use_container_width=True, hide_index=True, height=320)
-            boton_descarga(vista_df, "vista_general_hsm.csv", "t7_dl_vista")
-            st.caption("✅ Actividad reciente = tiene envíos en el DWH en vivo. ✅ Historial propio = "
-                       "tenemos guardado su detalle de respuestas HSM, aunque ya haya salido de la "
-                       "ventana de 90 días de Treble. Genera el historial en 📤 Pushes → Herramientas "
-                       "avanzadas → 📦 Historial semanal HSM.")
+            boton_descarga(vista_df, "catalogo_maestro_treble.csv", "t7_dl_maestro")
+            st.caption("Cada fila ya suma todas las versiones internas de Treble del mismo push "
+                       "(incluidas las que aparecen como \"Copia de la conversación...\"). "
+                       "Activa = envío ≤30 días. Reciente = 31-90 días. Inactiva = 90+ días.")
 
+        _iconos_estado = {"Activa": "✅", "Reciente": "🟡", "Inactiva": "⚠️"}
         etiquetas_push = {
-            (f"✅ {n}" if n in _nombres_con_data else f"⚠️ {n} (sin envíos en 365d)"): n
-            for n in push_opciones_raw
+            f"{_iconos_estado[r.estado_real]} {r.push} ({r.estado_real.lower()})": r.push
+            for r in maestro.itertuples()
         }
-        push_label = st.selectbox("Elegí un push para analizar (⚠️ = sin envíos reales en el último año)",
+        push_label = st.selectbox("Elegí un push para analizar (lista completa de Treble, sin filtrar por catálogo)",
                                    sorted(etiquetas_push.keys()), key="t7_push")
         push_pick = etiquetas_push[push_label]
+        _fila_maestro = maestro[maestro["push"] == push_pick].iloc[0]
+        push_query = push_pick
+        push_poll_ids = [p for p in _fila_maestro["poll_ids"].split(",") if p.strip().isdigit()]
 
-        # Usamos el nombre EXACTO ya confirmado contra Treble (columna poll_name_dwh_real del
-        # catálogo) para las consultas — más preciso y rápido que la búsqueda flexible en cada
-        # carga. Si no lo tenemos verificado, caemos al nombre del catálogo con match flexible.
-        _fila_cat_push = cat[cat["conversacion"] == push_pick]
-        _real = _fila_cat_push.iloc[0]["poll_name_dwh_real"] if len(_fila_cat_push) else None
-        push_query = _real if pd.notna(_real) and _real else push_pick
-        # poll_id conocidos manualmente (para pushes donde Treble guarda poll_name vacío en el
-        # DWH — confirmado que existe para varios pushes con envíos reales, aunque el nombre
-        # de texto esté en blanco ahí. Ver columna poll_ids_conocidos del catálogo).
-        _pids_raw = _fila_cat_push.iloc[0].get("poll_ids_conocidos", "") if len(_fila_cat_push) else ""
-        push_poll_ids = []
-        if pd.notna(_pids_raw) and str(_pids_raw).strip():
-            for p in str(_pids_raw).split(","):
-                p = p.strip()
-                if p.endswith(".0"):
-                    p = p[:-2]
-                if p.isdigit():
-                    push_poll_ids.append(p)
-
-        if push_pick not in _nombres_con_data:
-            st.caption(f"⚠️ Sin envíos de \"{push_pick}\" en el DWH — verificar si Treble la renombró al editarla.")
+        if _fila_maestro["estado_real"] != "Activa":
+            st.caption(f"⚠️ Sin envíos en los últimos 30 días — último envío real: "
+                       f"{_fila_maestro['ultimo_envio']} ({_fila_maestro['dias_desde_ultimo']}d atrás). "
+                       f"Las secciones de abajo pueden tener datos históricos igual.")
 
         # ── 1) Tasa de respuesta real, granular (fact_deployment_status) ──
         st.markdown('<span class="sec blue">1️⃣ Respuesta real</span>', unsafe_allow_html=True)
@@ -2116,23 +2176,10 @@ with tab7:
                         st.caption(f"{no_entregados:,} no entregados, pero Treble no registró un motivo "
                                    f"específico para ninguno (columnas de falla en cero).")
 
-        # ── ¿El catálogo dice lo mismo que Treble? (independiente de la Sección 1) ──
-        estado_catalogo_push = cat[cat["conversacion"] == push_pick]
-        estado_catalogo_txt = estado_catalogo_push.iloc[0]["estado"] if len(estado_catalogo_push) else "?"
-        act_df = dwh_actividad_reciente(push_query, poll_ids=tuple(push_poll_ids))
-        if act_df is not None and not act_df.empty and pd.notna(act_df["ultimo_envio"].iloc[0]):
-            ultimo_envio = pd.to_datetime(act_df["ultimo_envio"].iloc[0]).date()
-            dias_desde_ultimo = (pd.Timestamp.now().date() - ultimo_envio).days
-            esta_activo_real = dias_desde_ultimo <= 30
-            catalogo_dice_activo = estado_catalogo_txt in ("Push Activo", "Manual activo")
-            if esta_activo_real != catalogo_dice_activo:
-                st.markdown(
-                    f'<div class="crit">🚨 Catálogo dice "{estado_catalogo_txt}" — último envío real: '
-                    f'{ultimo_envio} ({dias_desde_ultimo}d atrás). Actualizar catálogo.</div>',
-                    unsafe_allow_html=True
-                )
-            else:
-                st.caption(f"✅ Consistente — último envío: {ultimo_envio} ({dias_desde_ultimo}d atrás).")
+        # ── Estado real, directo del catálogo maestro (ya calculado, sin volver a consultar) ──
+        st.caption(f"✅ Último envío real: {_fila_maestro['ultimo_envio']} "
+                   f"({_fila_maestro['dias_desde_ultimo']}d atrás) · {_fila_maestro['n_versiones']} "
+                   f"versión(es) de esta plantilla detectadas y sumadas en Treble.")
 
         # ── 2) Qué contestan (fact_hsm_responses) — independiente de la Sección 1 ──
         st.markdown("<br>", unsafe_allow_html=True)
@@ -2298,4 +2345,4 @@ st.markdown("<br><hr>", unsafe_allow_html=True)
 st.caption("Dashboard Conversaciones y Pushes Automáticos · Opción Yo — generado con NOVA. "
            "Datos: Data Warehouse de Treble en vivo (con respaldo automático a CSV si no hay conexión), "
            "catálogo interno de plantillas y export de árbol de conversación. "
-           "No incluye incidencias técnicas (dashboard aparte). · Build: 2026-08-11-HSM-FIX-16-CONSOLIDADO-TOTAL")
+           "No incluye incidencias técnicas (dashboard aparte). · Build: 2026-08-11-HSM-FIX-19-CATALOGO-TREBLE")
