@@ -490,12 +490,15 @@ def dwh_motivos_no_entrega(poll_name: str, dias: int = 365):
 @st.cache_data(ttl=300, show_spinner="⏳ Verificando actividad real de todos los pushes en Treble…")
 def dwh_actividad_reciente_todos():
     """Última fecha de envío real y volumen, para TODAS las plantillas a la vez —
-    una sola consulta en vez de una por fila, para no sobrecargar el DWH ni la app."""
+    una sola consulta en vez de una por fila, para no sobrecargar el DWH ni la app.
+    Incluye poll_id para poder cruzar por ID confirmado (columna poll_ids_conocidos
+    del catálogo) cuando el nombre de texto no calza (tildes, poll_name vacío, etc.)
+    — por eso NO filtramos poll_name vacío acá, a diferencia del resto del dashboard."""
     sql = """
-        SELECT poll_name, toString(max(day)) AS ultimo_envio, toString(min(day)) AS primer_envio, sum(sent) AS enviados_365d
+        SELECT poll_id, poll_name, toString(max(day)) AS ultimo_envio, toString(min(day)) AS primer_envio, sum(sent) AS enviados_365d
         FROM client_analytics.fact_deployment_daily
-        WHERE day >= today() - 365 AND poll_name != '' AND poll_name IS NOT NULL
-        GROUP BY poll_name
+        WHERE day >= today() - 365
+        GROUP BY poll_id, poll_name
     """
     return dwh_query(sql)
 
@@ -1043,18 +1046,19 @@ with tab2:
     agg = agg.drop(columns=["resp_pond"]).sort_values("costo_estimado", ascending=False)
 
     # Cruce con catálogo (matching normalizado sin tildes)
-    cat_lookup = cat.set_index("conversacion")[["equipo", "estado", "activo"]]
+    cat_lookup = cat.set_index("conversacion")[["equipo", "estado", "activo", "poll_ids_conocidos"]]
     cat_norm_index = {_norm_txt(k): k for k in cat_lookup.index}
     def _cat_match(n):
         n_norm = _norm_txt(n)
         for k_norm, k in cat_norm_index.items():
             if k_norm in n_norm or n_norm in k_norm:
-                return cat_lookup.loc[k, "equipo"], cat_lookup.loc[k, "estado"], cat_lookup.loc[k, "activo"]
-        return "Sin match en catálogo", "Sin match", None
+                return cat_lookup.loc[k, "equipo"], cat_lookup.loc[k, "estado"], cat_lookup.loc[k, "activo"], k
+        return "Sin match en catálogo", "Sin match", None, None
     _res = [_cat_match(n) for n in agg["name_clean"]]
     agg["equipo"] = [r[0] for r in _res]
     agg["estado_catalogo"] = [r[1] for r in _res]
     agg["activo"] = [r[2] for r in _res]
+    agg["_catalogo_match"] = [r[3] for r in _res]
     agg["Activo"] = agg["activo"].map({True: "✅ Sí", False: "⛔ No"}).fillna("❓ Sin match")
 
     inactivos_con_envio = int((agg["activo"] == False).sum())
@@ -1089,16 +1093,28 @@ with tab2:
     if _dwh_ok:
         _activ = dwh_actividad_reciente_todos()
         if _activ is not None and not _activ.empty:
-            _activ_lista = [(_norm_txt(r["poll_name"]), r["ultimo_envio"]) for _, r in _activ.iterrows()]
+            _activ_lista = [(_norm_txt(r["poll_name"]), r["ultimo_envio"]) for _, r in _activ.iterrows() if r["poll_name"]]
+            _activ_por_id = {int(r["poll_id"]): r["ultimo_envio"] for _, r in _activ.iterrows()}
+            _pids_por_nombre = dict(zip(cat["conversacion"], cat["poll_ids_conocidos"]))
 
-            def _buscar_ultimo_envio(nombre):
+            def _buscar_ultimo_envio(nombre, cat_match):
+                # 1) poll_id confirmado del catálogo — la fuente más precisa, funciona
+                #    aunque el poll_name esté vacío en el DWH (caso ya confirmado que existe).
+                pids_raw = _pids_por_nombre.get(cat_match) if cat_match else None
+                if pd.notna(pids_raw) and str(pids_raw).strip():
+                    fechas = [_activ_por_id[int(p)] for p in str(pids_raw).split(",")
+                              if p.strip().isdigit() and int(p) in _activ_por_id]
+                    if fechas:
+                        return max(fechas)
+                # 2) Respaldo: coincidencia flexible por nombre
                 nn = _norm_txt(nombre)
                 for norm_p, ultimo in _activ_lista:
                     if norm_p in nn or nn in norm_p:
                         return ultimo
                 return None
 
-            agg["Último envío (DWH)"] = agg["name_clean"].apply(_buscar_ultimo_envio)
+            agg["Último envío (DWH)"] = agg.apply(
+                lambda r: _buscar_ultimo_envio(r["name_clean"], r["_catalogo_match"]), axis=1)
             agg["Último envío (DWH)"] = pd.to_datetime(agg["Último envío (DWH)"], errors="coerce").dt.date
             _hoy = pd.Timestamp.now().date()
             agg["_dias_desde_envio"] = agg["Último envío (DWH)"].apply(
@@ -2282,4 +2298,4 @@ st.markdown("<br><hr>", unsafe_allow_html=True)
 st.caption("Dashboard Conversaciones y Pushes Automáticos · Opción Yo — generado con NOVA. "
            "Datos: Data Warehouse de Treble en vivo (con respaldo automático a CSV si no hay conexión), "
            "catálogo interno de plantillas y export de árbol de conversación. "
-           "No incluye incidencias técnicas (dashboard aparte). · Build: 2026-08-06-HSM-FIX-15-TIPO-DATO")
+           "No incluye incidencias técnicas (dashboard aparte). · Build: 2026-08-11-HSM-FIX-16-CONSOLIDADO-TOTAL")
