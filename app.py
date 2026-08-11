@@ -1204,6 +1204,8 @@ with tab2:
 
             def _estado_confirmado(row):
                 dias = row["_dias_desde_envio"]
+                if row["estado_catalogo"] == "Sin match":
+                    return "📋 No catalogado"  # nada que comparar, no es una discrepancia
                 catalogo_activo = row["activo"] is True
                 if pd.isna(dias):
                     return "❓ Sin dato DWH"
@@ -2358,4 +2360,4 @@ st.markdown("<br><hr>", unsafe_allow_html=True)
 st.caption("Dashboard Conversaciones y Pushes Automáticos · Opción Yo — generado con NOVA. "
            "Datos: Data Warehouse de Treble en vivo (con respaldo automático a CSV si no hay conexión), "
            "catálogo interno de plantillas y export de árbol de conversación. "
-           "No incluye incidencias técnicas (dashboard aparte). · Build: 2026-08-11-HSM-FIX-21-FILTRO-100-TREBLE")
+           "No incluye incidencias técnicas (dashboard aparte). · Build: 2026-08-11-HSM-FIX-22-DISCREPANCIAS-REALES")
