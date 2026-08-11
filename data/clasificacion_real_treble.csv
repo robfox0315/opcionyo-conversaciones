@@ -1,0 +1,49 @@
+conversacion,catalogo_activo,estado_real_treble,ultimo_envio_real,envios_totales,poll_ids
+Cuarta sesión si asistió,True,Activa (envío ≤30d),2026-08-11,1794,"1255390,1368398"
+"Inasistencia 2, 3 o 4ta sesión con AR",True,Activa (envío ≤30d),2026-08-11,717,"1282062,1374275"
+"Inasistencia 2, 3, o 4ta sesión",True,Activa (envío ≤30d),2026-08-11,421,"1282059,1374276"
+Inasistencia Primera sesión,True,Activa (envío ≤30d),2026-08-11,164,"1255396,1374277"
+Informe pago fallido 48hs,True,Activa (envío ≤30d),2026-08-11,448,"1368978,1384035"
+Notificación especialista sesión hoy,True,Activa (envío ≤30d),2026-08-11,1101,1004068
+Onboarding 24hs sin agendar consultoria,True,Activa (envío ≤30d),2026-08-11,117,"1285803,1374370"
+Onboarding 3hs sin agendar consultoria,True,Activa (envío ≤30d),2026-08-11,157,"1285792,1374376"
+Onboarding 6hs sin agendar Consultoria,True,Activa (envío ≤30d),2026-08-11,140,"1285796,1374375"
+Pago fallido,True,Activa (envío ≤30d),2026-08-11,448,"1368978,1384035"
+Primera sesión si asistió,True,Activa (envío ≤30d),2026-08-11,2238,"1282086,1368389"
+Puntuación 1,True,Activa (envío ≤30d),2026-08-11,74,1115759
+Puntuación 2,True,Activa (envío ≤30d),2026-08-09,110,1129670
+Puntuación 3,True,Activa (envío ≤30d),2026-08-11,489,1129686
+Push sesión en 72hs,True,Activa (envío ≤30d),2026-08-11,2989,"1018613,1368380"
+Recordatorio Sesión en 28hs,True,Activa (envío ≤30d),2026-08-11,35553,"1216650,1331721,1332898,1333607,1343003,1389710"
+Segunda Sesión - Si asistió,True,Activa (envío ≤30d),2026-08-11,2046,"1255377,1368390,1374377"
+Tercera sesión si asistió,True,Activa (envío ≤30d),2026-08-11,1915,"1255383,1368393,1374378"
+Cliente con 2 Cancelaciones tardias GI,True,Activa (envío ≤30d),2026-08-07,33,1393021
+Cliente con Cancelacion Tardia GI,True,Activa (envío ≤30d),2026-08-10,69,1393016
+Inasistencias Lau O,True,Activa (envío ≤30d),2026-08-10,331,1381118
+Llamada consultores,True,Activa (envío ≤30d),2026-08-10,407,"1303425,1405027"
+Mante - Saludo Carlos,True,Reciente (31-90d),2026-06-29,7,1372439
+Mante - Saludo Carolina,True,Activa (envío ≤30d),2026-08-10,39,1277459
+Mante - Saludo Giselle,True,Activa (envío ≤30d),2026-08-09,102,1277461
+NPS Carlos,True,Activa (envío ≤30d),2026-07-24,3,1374257
+NPS Lau O,True,Activa (envío ≤30d),2026-08-11,15,1381159
+Saludo - Gestor de Consultoria,True,Activa (envío ≤30d),2026-08-02,9,1372906
+Saludo Cancelación Lau O,True,Activa (envío ≤30d),2026-07-20,1,1122007
+Saludo Cancelación Laura P,True,Reciente (31-90d),2026-07-10,5,1122000
+Saludo Carol INASISTENCIAS,True,Activa (envío ≤30d),2026-08-10,432,"1249130,1374278"
+Saludo Carol NPS,True,Activa (envío ≤30d),2026-08-10,52,"1250845,1374273"
+Saludo Claudia,True,Activa (envío ≤30d),2026-08-11,164,"1379585,1379698"
+Saludo Diana Rete,True,Activa (envío ≤30d),2026-08-10,178,1262639
+Saludo Especialista deja OY,True,Activa (envío ≤30d),2026-08-11,123,1399087
+Saludo Gestoras Consultoria,True,Activa (envío ≤30d),2026-08-11,763,1391721
+Saludo Giselle INASISTENCIAS,True,Activa (envío ≤30d),2026-08-10,320,"1249125,1374279"
+Saludo Giselle NPS,True,Activa (envío ≤30d),2026-08-09,47,"1250843,1374269"
+Seguimiento Carlos,True,Reciente (31-90d),2026-06-26,3,1133891
+Seguimiento LauO,True,Activa (envío ≤30d),2026-08-11,428,1133895
+Próximo paso de tu proceso,True,Activa (envío ≤30d),2026-08-10,112,1408784
+Información importante sobre tu proceso,True,Activa (envío ≤30d),2026-08-10,51,1408790
+Coordinemos una nueva llamada,True,Activa (envío ≤30d),2026-08-10,17,1408800
+Próximo paso de tu cambio de especialista,True,Activa (envío ≤30d),2026-08-10,8,"1408804,1409138"
+Seguimiento a tu proceso,True,Activa (envío ≤30d),2026-08-10,23,"1412165,1426130"
+Sesiones pendientes lau O,True,Activa (envío ≤30d),2026-08-11,38,1420878
+Encuesta User Persona,False,Reciente (31-90d),2026-06-23,939,"1374703,1379069"
+Push Marketing descargar APP,False,Activa (envío ≤30d),2026-07-28,6,1179931
