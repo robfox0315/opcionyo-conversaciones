@@ -300,35 +300,44 @@ def dwh_general_report(dias=210):
 
 @st.cache_data(ttl=300, show_spinner="⏳ Recuperando datos de plantillas con poll_name vacío en Treble…")
 def dwh_reporte_poll_ids_conocidos(mapa_ids: tuple, dias=210):
-    """Trae sent/delivered/responded día a día para poll_id específicos, sin importar
-    si su poll_name está vacío en el DWH — usa el nombre real del catálogo (ya
-    confirmado a mano contra Treble) en vez del poll_name en blanco. Esto es lo que
-    permite que 'Inasistencia con AR' y similares muestren sus números reales en la
-    tabla principal, no solo en el chequeo de 'último envío'."""
+    """Trae sent/delivered/responded dia a dia para poll_id especificos, sin importar
+    si su poll_name esta vacio en el DWH -- usa el nombre real del catalogo (ya
+    confirmado a mano contra Treble) en vez del poll_name en blanco.
+
+    Antes armaba una consulta con un UNION ALL por cada plantilla (podian ser 60+
+    subconsultas) -- con el catalogo creciendo, esa consulta se volvia demasiado
+    pesada y fallaba en silencio. Ahora es UNA sola consulta simple por poll_id,
+    y el nombre del catalogo se asigna en Python despues."""
     if not mapa_ids:
         return None
-    partes = []
+    poll_id_a_nombre = {}
     for nombre_cat, ids_str in mapa_ids:
-        ids = [p.strip() for p in str(ids_str).split(",") if p.strip().isdigit()]
-        if not ids:
-            continue
-        nombre_esc = nombre_cat.replace("'", "''")
-        partes.append(f"""
-            SELECT day AS date, '{nombre_esc}' AS name, sum(sent) AS successful,
-                   sum(delivered) AS delivered,
-                   round(sum(responded) * 1.0 / nullIf(sum(sent), 0), 4) AS response_rate
-            FROM client_analytics.fact_deployment_daily
-            WHERE poll_id IN ({",".join(ids)}) AND day >= today() - {int(dias)}
-            GROUP BY day
-        """)
-    if not partes:
+        for p in str(ids_str).split(","):
+            p = p.strip()
+            if p.isdigit():
+                poll_id_a_nombre[int(p)] = nombre_cat
+    if not poll_id_a_nombre:
         return None
-    sql = " UNION ALL ".join(partes) + " ORDER BY date"
+    ids_todos = ",".join(str(i) for i in poll_id_a_nombre.keys())
+    sql = f"""
+        SELECT day AS date, poll_id, sum(sent) AS successful, sum(delivered) AS delivered,
+               round(sum(responded) * 1.0 / nullIf(sum(sent), 0), 4) AS response_rate
+        FROM client_analytics.fact_deployment_daily
+        WHERE poll_id IN ({ids_todos}) AND day >= today() - {int(dias)}
+        GROUP BY day, poll_id
+    """
     df = dwh_query(sql)
     if df is None or df.empty:
         return None
+    df["name"] = df["poll_id"].map(poll_id_a_nombre)
+    df = df.dropna(subset=["name"])
+    if df.empty:
+        return None
     df["date"] = pd.to_datetime(df["date"])
     df["name_clean"] = df["name"]
+    df = df.groupby(["date", "name", "name_clean"], as_index=False).agg(
+        successful=("successful", "sum"), delivered=("delivered", "sum"),
+        response_rate=("response_rate", "mean"))
     return df
 
 
@@ -2463,4 +2472,4 @@ st.markdown("<br><hr>", unsafe_allow_html=True)
 st.caption("Dashboard Conversaciones y Pushes Automáticos · Opción Yo — generado con NOVA. "
            "Datos: Data Warehouse de Treble en vivo (con respaldo automático a CSV si no hay conexión), "
            "catálogo interno de plantillas y export de árbol de conversación. "
-           "No incluye incidencias técnicas (dashboard aparte). · Build: 2026-08-14-HSM-FIX-26-SALVAGUARDA-HSM-COMPARTIDO")
+           "No incluye incidencias técnicas (dashboard aparte). · Build: 2026-08-14-HSM-FIX-27-CONSULTA-SIMPLIFICADA")
