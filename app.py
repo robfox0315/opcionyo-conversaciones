@@ -298,6 +298,40 @@ def dwh_general_report(dias=210):
     return df
 
 
+@st.cache_data(ttl=300, show_spinner="⏳ Recuperando datos de plantillas con poll_name vacío en Treble…")
+def dwh_reporte_poll_ids_conocidos(mapa_ids: tuple, dias=210):
+    """Trae sent/delivered/responded día a día para poll_id específicos, sin importar
+    si su poll_name está vacío en el DWH — usa el nombre real del catálogo (ya
+    confirmado a mano contra Treble) en vez del poll_name en blanco. Esto es lo que
+    permite que 'Inasistencia con AR' y similares muestren sus números reales en la
+    tabla principal, no solo en el chequeo de 'último envío'."""
+    if not mapa_ids:
+        return None
+    partes = []
+    for nombre_cat, ids_str in mapa_ids:
+        ids = [p.strip() for p in str(ids_str).split(",") if p.strip().isdigit()]
+        if not ids:
+            continue
+        nombre_esc = nombre_cat.replace("'", "''")
+        partes.append(f"""
+            SELECT day AS date, '{nombre_esc}' AS name, sum(sent) AS successful,
+                   sum(delivered) AS delivered,
+                   round(sum(responded) * 1.0 / nullIf(sum(sent), 0), 4) AS response_rate
+            FROM client_analytics.fact_deployment_daily
+            WHERE poll_id IN ({",".join(ids)}) AND day >= today() - {int(dias)}
+            GROUP BY day
+        """)
+    if not partes:
+        return None
+    sql = " UNION ALL ".join(partes) + " ORDER BY date"
+    df = dwh_query(sql)
+    if df is None or df.empty:
+        return None
+    df["date"] = pd.to_datetime(df["date"])
+    df["name_clean"] = df["name"]
+    return df
+
+
 @st.cache_data(ttl=300, show_spinner="⏳ Consultando Data Warehouse (sesiones)…")
 def dwh_sessions(dias=32):
     """Reconstruye el equivalente al reporte de sesiones desde fact_sessions."""
@@ -779,6 +813,29 @@ gr = load_general_report()
 sr = load_sessions()
 cat = load_catalog()
 arbol = load_arbol()
+
+# ── Enriquecer gr con plantillas cuyo poll_name está vacío en el DWH, pero cuyo
+# poll_id ya confirmamos a mano contra Treble (columna poll_ids_conocidos). Sin esto,
+# la tabla principal de Pushes mostraba 0 para plantillas con envíos reales grandes,
+# aunque el chequeo de "último envío" sí las reconociera — dos fuentes distintas que
+# hasta ahora no estaban unificadas. ──
+if gr is not None and gr.attrs.get("fuente") == "dwh":
+    _mapa_ids_conocidos = tuple(
+        (n, i) for n, i in zip(cat["conversacion"], cat["poll_ids_conocidos"])
+        if pd.notna(i) and str(i).strip()
+    )
+    if _mapa_ids_conocidos:
+        _extra_gr = dwh_reporte_poll_ids_conocidos(_mapa_ids_conocidos)
+        if _extra_gr is not None and not _extra_gr.empty:
+            _fuente_gr_bak = gr.attrs.get("fuente")
+            # Evitar duplicar: si ese nombre YA tenía filas con poll_name real en gr,
+            # no las volvemos a sumar — solo agregamos los que estaban en 0 o parciales.
+            _ya_cubiertos = set(gr[gr["successful"] > 0]["name_clean"].unique())
+            _extra_gr = _extra_gr[~_extra_gr["name_clean"].isin(_ya_cubiertos)]
+            if not _extra_gr.empty:
+                gr = pd.concat([gr, _extra_gr[["date", "name", "successful", "delivered",
+                                                "response_rate", "name_clean"]]], ignore_index=True)
+                gr.attrs["fuente"] = _fuente_gr_bak
 
 # Filtro global de alcance: nos quedamos solo con campañas que están en el catálogo de
 # plantillas ATC. El DWH trae TODAS las líneas de Treble (incluida Ventas/Marketing, que
@@ -2370,4 +2427,4 @@ st.markdown("<br><hr>", unsafe_allow_html=True)
 st.caption("Dashboard Conversaciones y Pushes Automáticos · Opción Yo — generado con NOVA. "
            "Datos: Data Warehouse de Treble en vivo (con respaldo automático a CSV si no hay conexión), "
            "catálogo interno de plantillas y export de árbol de conversación. "
-           "No incluye incidencias técnicas (dashboard aparte). · Build: 2026-08-11-HSM-FIX-23-MATCH-CORTO-Y-DETALLE")
+           "No incluye incidencias técnicas (dashboard aparte). · Build: 2026-08-14-HSM-FIX-24-ENRIQUECER-GR")
