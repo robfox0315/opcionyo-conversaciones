@@ -1615,6 +1615,22 @@ with tab4:
             f'candidatas a eliminar</b> — filtra por "Notas" abajo para verlas.</div>', unsafe_allow_html=True
         )
 
+    # ── HSM compartido entre plantillas distintas — dos pushes de negocio pueden usar el
+    # mismo texto/HSM (ej. "con AR" y "sin AR") pero ser flujos separados en Treble. Ya nos
+    # equivocamos una vez asumiendo que HSM compartido = mismo push; esto lo hace visible
+    # siempre, para no repetir el error. ──
+    _hsm_validos = cat[cat["plantilla"] != "Sin documentar"]
+    _hsm_compartidos = _hsm_validos[_hsm_validos.duplicated("plantilla", keep=False)]
+    if len(_hsm_compartidos):
+        with st.expander(f"⚠️ {_hsm_compartidos['plantilla'].nunique()} código(s) HSM usados por más de una plantilla — verificar que sean flujos realmente distintos"):
+            st.dataframe(_hsm_compartidos.sort_values("plantilla")[["plantilla", "conversacion", "equipo", "estado", "poll_ids_conocidos"]]
+                         .rename(columns={"plantilla": "HSM compartido", "conversacion": "Plantilla del catálogo",
+                                          "equipo": "Equipo", "estado": "Estado", "poll_ids_conocidos": "poll_id confirmado"}),
+                         use_container_width=True, hide_index=True)
+            st.caption("Mismo HSM no significa mismo push de negocio — pueden ser flujos separados que comparten "
+                       "el mismo texto de mensaje (ej. 'con AR' vs 'sin AR'). El único dato que distingue con "
+                       "certeza cuál poll_id pertenece a cuál es un reporte directo de Treble, no el HSM.")
+
     with st.expander("🔍 Cruce en vivo contra Treble — ¿el catálogo tiene todo lo que Treble realmente envía?"):
         if not _dwh_ok:
             st.caption(f"Data Warehouse no conectado: {_dwh_msg}")
@@ -2372,12 +2388,14 @@ with tab7:
             candidatos = [push_pick] + ([plantilla_hsm] if plantilla_hsm and plantilla_hsm != "Sin documentar" else [])
             arbol_plantillas = arbol["Plantilla"].unique()
             match_arbol = None
-            for cand in candidatos:
+            match_via_hsm = False
+            for i, cand in enumerate(candidatos):
                 cn = _norm_agresivo(cand)
                 for p in arbol_plantillas:
                     pn = _norm_agresivo(p)
                     if len(pn) >= 5 and (pn in cn or cn in pn):
                         match_arbol = p
+                        match_via_hsm = (i > 0)  # matcheó por el HSM, no por el nombre del push
                         break
                 if match_arbol:
                     break
@@ -2386,6 +2404,16 @@ with tab7:
                 st.caption("Este push no está en el export del árbol bajo un nombre reconocible.")
             else:
                 st.caption(f"✅ Encontrado como: **{match_arbol}**")
+                if match_via_hsm:
+                    _otros_con_mismo_hsm = cat[(cat["plantilla"] == plantilla_hsm) & (cat["conversacion"] != push_pick)]["conversacion"].tolist()
+                    if _otros_con_mismo_hsm:
+                        st.markdown(
+                            f'<div class="alrt">⚠️ Este mapa se encontró por el código HSM compartido, no por '
+                            f'el nombre exacto de este push. Otra(s) plantilla(s) del catálogo usan el mismo '
+                            f'HSM: {", ".join(_otros_con_mismo_hsm)} — el mapa de abajo podría corresponder a '
+                            f'cualquiera de ellas, no necesariamente a "{push_pick}" en particular.</div>',
+                            unsafe_allow_html=True
+                        )
                 sub_full7 = arbol[arbol["Plantilla"] == match_arbol].copy()
                 poll_top7 = sub_full7.groupby("Poll ID")["N Clientes"].sum().idxmax()
                 sub_full7 = sub_full7[sub_full7["Poll ID"] == poll_top7].copy()
@@ -2435,4 +2463,4 @@ st.markdown("<br><hr>", unsafe_allow_html=True)
 st.caption("Dashboard Conversaciones y Pushes Automáticos · Opción Yo — generado con NOVA. "
            "Datos: Data Warehouse de Treble en vivo (con respaldo automático a CSV si no hay conexión), "
            "catálogo interno de plantillas y export de árbol de conversación. "
-           "No incluye incidencias técnicas (dashboard aparte). · Build: 2026-08-14-HSM-FIX-25-CORREGIDO-FECHA")
+           "No incluye incidencias técnicas (dashboard aparte). · Build: 2026-08-14-HSM-FIX-26-SALVAGUARDA-HSM-COMPARTIDO")
