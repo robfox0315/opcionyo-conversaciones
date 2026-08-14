@@ -836,6 +836,14 @@ if gr is not None and gr.attrs.get("fuente") == "dwh":
                 gr = pd.concat([gr, _extra_gr[["date", "name", "successful", "delivered",
                                                 "response_rate", "name_clean"]]], ignore_index=True)
                 gr.attrs["fuente"] = _fuente_gr_bak
+                # Las filas nuevas no traían fecha/mes/semana — sin esto, gr["fecha"]
+                # queda con NaT mezclado con date y cualquier .min()/.max() revienta.
+                gr["date"] = pd.to_datetime(gr["date"])
+                gr["mes"] = gr["date"].dt.to_period("M").apply(lambda p: p.start_time.date())
+                gr["fecha"] = gr["date"].dt.date
+                gr["semana"] = gr["date"].dt.to_period("W").apply(lambda p: p.start_time.date())
+                for c in ["name", "name_clean"]:
+                    gr[c] = gr[c].astype("category")
 
 # Filtro global de alcance: nos quedamos solo con campañas que están en el catálogo de
 # plantillas ATC. El DWH trae TODAS las líneas de Treble (incluida Ventas/Marketing, que
@@ -2427,4 +2435,4 @@ st.markdown("<br><hr>", unsafe_allow_html=True)
 st.caption("Dashboard Conversaciones y Pushes Automáticos · Opción Yo — generado con NOVA. "
            "Datos: Data Warehouse de Treble en vivo (con respaldo automático a CSV si no hay conexión), "
            "catálogo interno de plantillas y export de árbol de conversación. "
-           "No incluye incidencias técnicas (dashboard aparte). · Build: 2026-08-14-HSM-FIX-24-ENRIQUECER-GR")
+           "No incluye incidencias técnicas (dashboard aparte). · Build: 2026-08-14-HSM-FIX-25-CORREGIDO-FECHA")
